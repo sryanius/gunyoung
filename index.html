@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>군영전</title>
+<!-- 폰트: 제목 붓글씨 / 본문 명조 / 한자 -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nanum+Brush+Script&family=Noto+Serif+KR:wght@900&family=Song+Myung&display=swap" rel="stylesheet">
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #0b0a08;
+    overflow: hidden;
+    touch-action: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
+  }
+  #game { position: fixed; inset: 0; }
+  #game canvas { display: block; }
+
+  /* 세로로 들면 이 안내만 보인다 (SPEC §1). 게임 위젯이 아니라 HTML 은 여기뿐. */
+  #rotate {
+    position: fixed; inset: 0; z-index: 10;
+    display: none; flex-direction: column; align-items: center; justify-content: center;
+    background: #0b0a08; color: #e9d9b5;
+    font-family: 'Nanum Brush Script', 'Song Myung', serif;
+    text-align: center;
+  }
+  #rotate .phone {
+    width: 56px; height: 96px; border: 4px solid #c8a24a; border-radius: 10px;
+    animation: turn 1.8s ease-in-out infinite; box-sizing: border-box;
+  }
+  #rotate p { font-size: 40px; margin: 28px 0 0; }
+  #rotate small { font-family: 'Song Myung', serif; font-size: 16px; opacity: .7; }
+  @keyframes turn {
+    0%, 20%  { transform: rotate(0deg); }
+    60%, 100% { transform: rotate(90deg); }
+  }
+  @media (orientation: portrait) {
+    #rotate { display: flex; }
+  }
+</style>
+</head>
+<body>
+  <div id="game"></div>
+  <div id="rotate">
+    <div class="phone"></div>
+    <p>가로로 돌려 주세요</p>
+    <small>군영전은 가로 화면에서 즐길 수 있습니다</small>
+  </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

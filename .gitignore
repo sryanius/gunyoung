@@ -1,0 +1,16 @@
+# 개발 서버가 떨구는 스크린샷 (src/main.js __shot → tools/serve.mjs)
+tools/shots/
+
+# 에셋 생성 과정의 원본·후보 그림은 저장소에 넣지 않는다 (241MB). 재현 스크립트·NOTES 만 남긴다.
+# 그림은 이 PC 의 assets/raw/ 에 그대로 있다.
+assets/raw/**/*.png
+assets/raw/**/*.jpg
+assets/raw/**/*.jpeg
+assets/raw/**/*.webp
+
+# 에디터·프리뷰 설정
+.claude/
+
+# OS·편집기
+Thumbs.db
+.DS_Store

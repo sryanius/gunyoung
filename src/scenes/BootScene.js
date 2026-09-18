@@ -39,6 +39,27 @@ export const ASSETS = [
   ['cmd_march',     'icons/cmd_march.png',     64, 64],
 ];
 
+/**
+ * BATTLE.md §5 전투 선택 에셋: [키, 경로]. 없어도 코드 폴백으로 전부 돈다 — 계약 검사(smoke) 대상이 아니라 ASSETS 와 분리.
+ * 배경 3겹은 없으면 fbBattle*() 로 같은 키의 캔버스 텍스처를 만들고, 컷인·병사 일러스트는 없으면 코드 실루엣/붓글씨로.
+ */
+export const BATTLE_ASSETS = [
+  ['battle_sky',        'battle/sky.png'],          // 2048×720
+  ['battle_far',        'battle/far.png'],          // 2048×360 먼 산, 위 투명
+  ['battle_ground',     'battle/ground.png'],       // 1024×320 가로 반복
+  ['cutin_guanyu',      'battle/cutin/guanyu.png'],
+  ['cutin_zhangfei',    'battle/cutin/zhangfei.png'],
+  ['cutin_xiahoudun',   'battle/cutin/xiahoudun.png'],
+  ['cutin_dianwei',     'battle/cutin/dianwei.png'],
+  ['bunit_inf',         'battle/units/inf.png'],    // 96×128, 옆모습 오른쪽 보기, 옷 회백색(코드 tint)
+  ['bunit_spear',       'battle/units/spear.png'],
+  ['bunit_bow',         'battle/units/bow.png'],
+  ['bunit_cav',         'battle/units/cav.png'],
+  ['bunit_general_left',  'battle/units/general_left.png'],
+  ['bunit_general_right', 'battle/units/general_right.png'],
+];
+const BATTLE_KEYS = new Set(BATTLE_ASSETS.map((a) => a[0]));
+
 /** 결정적 난수(자리표시 그림이 매번 같게) */
 function rng(seed) {
   let a = seed >>> 0;
@@ -81,10 +102,12 @@ export default class BootScene extends Phaser.Scene {
 
   preload() {
     this.missing = new Set();
+    this.missingBattle = new Set();   // 전투 선택 에셋은 따로 센다(없는 게 정상일 수 있어 경고 문구를 나눈다)
     this.load.setPath('assets/');
     // 실패한 파일은 키만 기록한다 (Phaser 가 콘솔에 오류를 찍지만 진행에는 지장 없다)
-    this.load.on('loaderror', (file) => { this.missing.add(file.key); });
+    this.load.on('loaderror', (file) => { (BATTLE_KEYS.has(file.key) ? this.missingBattle : this.missing).add(file.key); });
     for (const [key, path] of ASSETS) this.load.image(key, path);
+    for (const [key, path] of BATTLE_ASSETS) this.load.image(key, path);
 
     // 진행 바 — 폰트가 아직 없으니 글자는 그리지 않는다
     // 컨테이너에 넣어 로딩 중 창 비율이 바뀌어도(main.js relayout → RESIZE) 가운데를 지킨다
@@ -110,6 +133,13 @@ export default class BootScene extends Phaser.Scene {
 
     this.makeFallbacks(missing);
     this.makeAlwaysTextures();
+
+    // 전투(BATTLE.md §4.1): 선택 에셋이 없으면 배경은 캔버스 폴백, 병종·무장 실루엣은 늘 코드로 만든다
+    for (const [key] of BATTLE_ASSETS) if (!this.textures.exists(key)) this.missingBattle.add(key);
+    const missingBattle = [...this.missingBattle];
+    this.registry.set('missingBattle', missingBattle);
+    if (missingBattle.length) console.info('[군영전] 전투 선택 에셋 없음(코드 폴백):', missingBattle.join(', '));
+    this.makeBattleTextures(missingBattle);
 
     await waitFonts();
     this.scene.start('MapScene');
@@ -176,6 +206,215 @@ export default class BootScene extends Phaser.Scene {
       c.fillStyle = g; c.fillRect(0, 0, 160, 160);
       t.refresh();
     }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 전투 텍스처 (BATTLE.md §4.1·§5)
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * 병종·무장 실루엣은 흰색으로 그려 BattleScene 이 편 색으로 tint 한다(무기 글리프는 살짝 어둡게 → tint 뒤 명도 차).
+   * 배경 3겹(sky/far/ground)은 에셋이 없을 때만 캔버스로 만든다. 화살·불꽃은 늘 만든다.
+   * generateTexture 는 Graphics 의 (0,0) 이 캔버스 왼쪽 위 — 좌표를 그대로 캔버스 픽셀로 쓴다.
+   */
+  makeBattleTextures(missing) {
+    const has = (k) => this.textures.exists(k);
+    if (!has('unit_inf')) this.fbUnitSoldier('unit_inf', 'inf');
+    if (!has('unit_spear')) this.fbUnitSoldier('unit_spear', 'spear');
+    if (!has('unit_bow')) this.fbUnitSoldier('unit_bow', 'bow');
+    if (!has('unit_cav')) this.fbUnitCav();
+    if (!has('unit_general')) this.fbUnitGeneral();
+    if (!has('arrow')) this.fbArrow();
+    if (!has('spark')) this.fbSpark();
+    const miss = new Set(missing);
+    if (miss.has('battle_sky') && !has('battle_sky')) this.fbBattleSky();
+    if (miss.has('battle_far') && !has('battle_far')) this.fbBattleFar();
+    if (miss.has('battle_ground') && !has('battle_ground')) this.fbBattleGround();
+  }
+
+  /** 병사 24×34 치비 실루엣(발이 아래 가운데, 오른쪽 보기). kind 별 무기 글리프·몸 명도 */
+  fbUnitSoldier(key, kind) {
+    const g = this.add.graphics();
+    const body = { inf: 0xffffff, spear: 0xf0f0f0, bow: 0xe2e2e2 }[kind] || 0xffffff;
+    const wpn = 0xc4c4c4;
+    // 머리·몸·다리
+    g.fillStyle(body, 1).fillCircle(12, 8, 6);
+    g.fillRoundedRect(6, 14, 12, 13, 3);
+    g.fillRect(7, 27, 4, 7).fillRect(13, 27, 4, 7);
+    // 투구 챙
+    g.fillStyle(0xd8d8d8, 1).fillRect(6, 7, 12, 2);
+    switch (kind) {
+      case 'spear':   // 긴 창 + 촉
+        g.lineStyle(2, wpn, 1).lineBetween(20, 33, 20, 3);
+        g.fillStyle(0xe8e8e8, 1).fillTriangle(17, 5, 23, 5, 20, 0);
+        break;
+      case 'bow': {   // 활 + 시위
+        g.lineStyle(2, wpn, 1);
+        g.beginPath(); g.arc(17, 18, 9, -80 * Math.PI / 180, 80 * Math.PI / 180, false); g.strokePath();
+        g.lineStyle(1, 0xf4f4f4, 0.9).lineBetween(18.5, 9.2, 18.5, 26.8);
+        break;
+      }
+      default:        // 보병: 검(사선) + 둥근 방패
+        g.lineStyle(2.5, wpn, 1).lineBetween(16, 23, 23, 9);
+        g.fillStyle(0xe4e4e4, 1).fillCircle(5, 20, 4);
+        g.lineStyle(1, 0xbcbcbc, 1).strokeCircle(5, 20, 4);
+    }
+    g.generateTexture(key, 24, 34);
+    g.destroy();
+  }
+
+  /** 기병 32×34 — 말 + 기수 + 기창 */
+  fbUnitCav() {
+    const g = this.add.graphics();
+    const horse = 0xd6d6d6, rider = 0xffffff, wpn = 0xc4c4c4;
+    // 말 몸통·목·머리·다리·꼬리
+    g.fillStyle(horse, 1).fillEllipse(15, 24, 24, 11);
+    g.fillTriangle(24, 21, 31, 13, 28, 26);
+    g.fillEllipse(30, 14, 7, 5);
+    g.lineStyle(3, horse, 1).lineBetween(7, 28, 5, 34).lineBetween(12, 29, 11, 34).lineBetween(19, 29, 20, 34).lineBetween(24, 27, 27, 33);
+    g.lineStyle(2, horse, 1).lineBetween(4, 22, 0, 28);
+    // 기수
+    g.fillStyle(rider, 1).fillCircle(14, 7, 5);
+    g.fillRoundedRect(9, 12, 10, 11, 3);
+    g.fillStyle(0xd8d8d8, 1).fillRect(9, 6, 10, 2);
+    // 기창
+    g.lineStyle(2, wpn, 1).lineBetween(18, 21, 30, 4);
+    g.fillStyle(0xe8e8e8, 1).fillTriangle(28, 6, 32, 3, 30, 1);
+    g.generateTexture('unit_cav', 32, 34);
+    g.destroy();
+  }
+
+  /** 무장 44×60 — 큰 실루엣 + 등의 깃발 + 언월도 */
+  fbUnitGeneral() {
+    const g = this.add.graphics();
+    const body = 0xffffff, wpn = 0xc8c8c8;
+    // 등의 깃대·깃발(왼쪽 = 뒤)
+    g.lineStyle(2, 0xdcdcdc, 1).lineBetween(10, 56, 10, 4);
+    g.fillStyle(0xf0f0f0, 1).fillTriangle(10, 5, 1, 11, 10, 18);
+    // 머리·투구 장식·몸·어깨·다리
+    g.fillStyle(body, 1).fillCircle(24, 13, 8);
+    g.fillCircle(24, 4, 3);
+    g.fillRoundedRect(15, 20, 18, 22, 4);
+    g.fillCircle(15, 23, 4).fillCircle(33, 23, 4);
+    g.fillRect(17, 42, 6, 17).fillRect(26, 42, 6, 17);
+    g.fillStyle(0xdedede, 1).fillRect(16, 11, 16, 2).fillRect(15, 30, 18, 2);
+    // 언월도
+    g.lineStyle(3, wpn, 1).lineBetween(37, 59, 37, 8);
+    g.fillStyle(0xe8e8e8, 1).fillPoints([{ x: 37, y: 6 }, { x: 44, y: 14 }, { x: 37, y: 26 }, { x: 40, y: 15 }], true);
+    g.generateTexture('unit_general', 44, 60);
+    g.destroy();
+  }
+
+  /** 화살 18×4 — 촉이 오른쪽 */
+  fbArrow() {
+    const g = this.add.graphics();
+    g.fillStyle(0xe8dcc0, 1).fillRect(0, 1, 15, 2);
+    g.fillStyle(0xd8d8d8, 1).fillTriangle(14, 0, 18, 2, 14, 4);
+    g.fillStyle(0xb8352c, 1).fillRect(0, 0, 3, 4);
+    g.generateTexture('arrow', 18, 4);
+    g.destroy();
+  }
+
+  /** 불꽃 16×16 — 흰 점(파티클) */
+  fbSpark() {
+    const t = this.textures.createCanvas('spark', 16, 16);
+    const c = t.context;
+    const gr = c.createRadialGradient(8, 8, 1, 8, 8, 8);
+    gr.addColorStop(0, 'rgba(255,255,255,1)');
+    gr.addColorStop(0.5, 'rgba(255,255,255,0.6)');
+    gr.addColorStop(1, 'rgba(255,255,255,0)');
+    c.fillStyle = gr; c.fillRect(0, 0, 16, 16);
+    t.refresh();
+  }
+
+  /** 하늘 2048×720 — 해질녘 그라데이션 + 해 + 안개, 아래 1/3 은 땅색으로 이어진다 */
+  fbBattleSky() {
+    const Wd = 2048, Hd = 720;
+    const t = this.textures.createCanvas('battle_sky', Wd, Hd);
+    const c = t.context;
+    const bg = c.createLinearGradient(0, 0, 0, Hd);
+    bg.addColorStop(0, '#2e3a5c'); bg.addColorStop(0.35, '#8a6a7a'); bg.addColorStop(0.55, '#d9946a');
+    bg.addColorStop(0.62, '#e8c28a'); bg.addColorStop(0.7, '#a08a60'); bg.addColorStop(1, '#6e5638');
+    c.fillStyle = bg; c.fillRect(0, 0, Wd, Hd);
+    // 해
+    const sun = c.createRadialGradient(1500, 372, 10, 1500, 372, 140);
+    sun.addColorStop(0, 'rgba(255,240,200,0.95)'); sun.addColorStop(0.25, 'rgba(255,210,140,0.55)'); sun.addColorStop(1, 'rgba(255,200,120,0)');
+    c.fillStyle = sun; c.fillRect(1340, 220, 320, 320);
+    // 옅은 구름 띠
+    const rnd = rng(31);
+    for (let i = 0; i < 26; i++) {
+      const x = rnd() * Wd, y = 60 + rnd() * 260, w = 120 + rnd() * 300, h = 14 + rnd() * 22;
+      // 납작한 타원 구름: 원형 그라데이션을 세로로 눌러 찍는다
+      c.save();
+      c.translate(x, y);
+      c.scale(1, h / (w / 2));
+      const gr = c.createRadialGradient(0, 0, 0, 0, 0, w / 2);
+      gr.addColorStop(0, 'rgba(255,235,215,0.22)'); gr.addColorStop(1, 'rgba(255,235,215,0)');
+      c.fillStyle = gr; c.fillRect(-w / 2, -w / 2, w, w);
+      c.restore();
+    }
+    t.refresh();
+  }
+
+  /** 먼 산 2048×360 — 실루엣 두 겹, 위 투명. 가로 반복되게 주기 2048 의 sin 합으로 */
+  fbBattleFar() {
+    const Wd = 2048, Hd = 360;
+    const t = this.textures.createCanvas('battle_far', Wd, Hd);
+    const c = t.context;
+    c.clearRect(0, 0, Wd, Hd);
+    const ridge = (base, amp, seedA, seedB, color) => {
+      c.fillStyle = color;
+      c.beginPath(); c.moveTo(0, Hd);
+      for (let x = 0; x <= Wd; x += 8) {
+        const p = x / Wd * Math.PI * 2;
+        const y = base - amp * (0.55 * Math.sin(p * 3 + seedA) + 0.3 * Math.sin(p * 7 + seedB) + 0.15 * Math.sin(p * 13 + seedA * 2) + 1.0);
+        c.lineTo(x, y);
+      }
+      c.lineTo(Wd, Hd); c.closePath(); c.fill();
+    };
+    ridge(230, 70, 0.4, 1.9, 'rgba(90,100,130,0.55)');
+    ridge(300, 55, 2.1, 0.7, 'rgba(70,78,100,0.8)');
+    // 밑변은 땅과 이어지도록 흐릿하게
+    const g = c.createLinearGradient(0, 300, 0, Hd);
+    g.addColorStop(0, 'rgba(110,86,56,0)'); g.addColorStop(1, 'rgba(110,86,56,0.9)');
+    c.fillStyle = g; c.fillRect(0, 300, Wd, 60);
+    t.refresh();
+  }
+
+  /** 땅 1024×320 — 흙·풀·돌, 가로 반복(seamless: 조각을 x±1024 에도 찍는다) */
+  fbBattleGround() {
+    const Wd = 1024, Hd = 320;
+    const t = this.textures.createCanvas('battle_ground', Wd, Hd);
+    const c = t.context;
+    const bg = c.createLinearGradient(0, 0, 0, Hd);
+    bg.addColorStop(0, '#b39a6a'); bg.addColorStop(0.3, '#a58a5c'); bg.addColorStop(1, '#7e6440');
+    c.fillStyle = bg; c.fillRect(0, 0, Wd, Hd);
+    const rnd = rng(19);
+    const wrap = (fn, x) => { fn(x); fn(x - Wd); fn(x + Wd); };
+    for (let i = 0; i < 160; i++) {
+      const x = rnd() * Wd, y = rnd() * Hd, r = 6 + rnd() * 30;
+      const dark = rnd() < 0.5;
+      wrap((xx) => {
+        const gr = c.createRadialGradient(xx, y, 0, xx, y, r);
+        gr.addColorStop(0, dark ? 'rgba(80,60,30,0.16)' : 'rgba(220,200,150,0.14)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+        c.fillStyle = gr; c.fillRect(xx - r, y - r, r * 2, r * 2);
+      }, x);
+    }
+    for (let i = 0; i < 140; i++) {   // 풀
+      const x = rnd() * Wd, y = rnd() * Hd, h = 4 + rnd() * 7;
+      wrap((xx) => {
+        c.strokeStyle = `rgba(${90 + rnd() * 30 | 0},${120 + rnd() * 40 | 0},${60 + rnd() * 20 | 0},0.7)`; c.lineWidth = 1.5;
+        c.beginPath(); c.moveTo(xx, y); c.lineTo(xx - 2, y - h); c.moveTo(xx, y); c.lineTo(xx + 2, y - h * 0.8); c.stroke();
+      }, x);
+    }
+    for (let i = 0; i < 40; i++) {    // 돌
+      const x = rnd() * Wd, y = rnd() * Hd, r = 2 + rnd() * 4;
+      wrap((xx) => {
+        c.fillStyle = 'rgba(120,110,95,0.85)'; c.beginPath(); c.ellipse(xx, y, r, r * 0.6, 0, 0, Math.PI * 2); c.fill();
+        c.fillStyle = 'rgba(0,0,0,0.25)'; c.beginPath(); c.ellipse(xx + 1, y + r * 0.5, r, r * 0.35, 0, 0, Math.PI * 2); c.fill();
+      }, x);
+    }
+    t.refresh();
   }
 
   /** 지도 — SPEC §2 개형을 Canvas 2D 로 대충 그린 수묵 담채풍 자리표시 */

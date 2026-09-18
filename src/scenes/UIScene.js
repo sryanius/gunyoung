@@ -82,6 +82,17 @@ export default class UIScene extends Phaser.Scene {
       this.input.keyboard.on('keydown-ESC', () => this.closePanel());
     }
     if (data.reopen) this.openPanel(data.reopen);
+    // 전투에서 돌아오면(BattleScene.goMap → MapScene { ui: { noIntro, toast } }) 결과 토스트
+    if (data.toast) this.time.delayedCall(250, () => this.toast(data.toast));
+  }
+
+  /** 커맨드 「출진」 — 전략맵을 내리고 전투 화면으로 (BATTLE.md §4.1). seed 는 출진 횟수 */
+  startBattle() {
+    const seed = (this.registry.get('battleCount') || 0) + 1;
+    this.registry.set('battleCount', seed);
+    sfx('open');
+    this.scene.stop('MapScene');
+    this.scene.start('BattleScene', { seed });
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -218,7 +229,8 @@ export default class UIScene extends Phaser.Scene {
       label.y = on ? 2 : 0;
     };
     c.on('pointerdown', () => { press(true); sfx('click'); });
-    c.on('pointerup', () => { press(false); this.toast(`${cmd.label} — 준비 중`); });
+    // 「출진」만 전투로 이어진다(BATTLE.md §4.1). 나머지는 아직 「준비 중」
+    c.on('pointerup', () => { press(false); if (cmd.key === 'cmd_march') this.startBattle(); else this.toast(`${cmd.label} — 준비 중`); });
     c.on('pointerout', () => press(false));
     return c;
   }

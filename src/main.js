@@ -4,6 +4,8 @@
 import BootScene from './scenes/BootScene.js';
 import MapScene from './scenes/MapScene.js';
 import UIScene from './scenes/UIScene.js';
+import BattleScene from './battle/BattleScene.js';
+import BattleHud from './battle/BattleHud.js';
 import { unlock } from './sfx.js';
 
 /**
@@ -43,7 +45,7 @@ const config = {
     activePointers: 2,             // 핀치용 — MapScene 에서 addPointer(1) 도 한 번 더 부른다
     mouse: { preventDefaultWheel: true },
   },
-  scene: [BootScene, MapScene, UIScene],
+  scene: [BootScene, MapScene, UIScene, BattleScene, BattleHud],   // 전투 2씬 (BATTLE.md §4)
 };
 
 const game = new Phaser.Game(config);
@@ -76,6 +78,11 @@ function relayout() {
     const reopen = ui.panelOpen ? ui.panelCity : null;
     ui.scene.restart({ noIntro: true, reopen });
   }
+  // 전투 화면: BattleScene 은 카메라 경계·배경 폭만 다시, HUD 는 오른쪽 기준 배치라 다시 만든다(인트로 없이)
+  const battle = game.scene.getScene('BattleScene');
+  if (battle && battle.scene.isActive() && typeof battle.applyBounds === 'function') battle.applyBounds();
+  const hud = game.scene.getScene('BattleHud');
+  if (hud && hud.scene.isActive()) hud.scene.restart({ relayout: true });
 }
 let relayoutTimer = 0;
 const relayoutSoon = () => { clearTimeout(relayoutTimer); relayoutTimer = setTimeout(relayout, 150); };

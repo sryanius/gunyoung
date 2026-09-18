@@ -3,6 +3,7 @@
 //   click : 커맨드 버튼 「딱」
 //   open  : 패널 열림 「스윽」(위로 쓸리는 소리)
 //   close : 패널 닫힘 (아래로 쓸리는 소리)
+//   hit   : 전투 타격 「퍽」 / skill : 무장기 발동 (BATTLE.md §4 — BattleScene 이 쓴다)
 // AudioContext 는 첫 사용자 입력(pointerdown) 뒤에 만들고, suspended 면 resume 한다.
 
 let ctx = null;
@@ -93,6 +94,16 @@ export function play(name) {
       case 'close':  // 내려가는 쓸림
         swoosh(c, { f0: 1800, f1: 220, dur: 0.2, gain: 0.1 });
         tone(c, { type: 'sine', f0: 640, f1: 360, dur: 0.14, gain: 0.06 });
+        break;
+      // ── 전투(BATTLE.md §4) — BattleScene 이 부른다. 타격음은 90ms 에 한 번으로 씬이 걸러 준다
+      case 'hit':    // 「퍽」 — 짧은 저음 + 잡음 한 조각
+        tone(c, { type: 'triangle', f0: 260, f1: 90, dur: 0.07, gain: 0.14, attack: 0.002 });
+        swoosh(c, { f0: 900, f1: 300, dur: 0.05, gain: 0.06, q: 0.7 });
+        break;
+      case 'skill':  // 무장기 — 낮게 깔리는 울림 + 올라가는 쓸림 + 종
+        tone(c, { type: 'sawtooth', f0: 110, f1: 55, dur: 0.45, gain: 0.16, attack: 0.01 });
+        swoosh(c, { f0: 200, f1: 3000, dur: 0.35, gain: 0.14, q: 1.0 });
+        tone(c, { type: 'sine', f0: 880, f1: 1320, dur: 0.3, gain: 0.07, delay: 0.08 });
         break;
       default:
         tone(c, { f0: 700, f1: 500, dur: 0.05, gain: 0.15 });

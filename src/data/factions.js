@@ -86,8 +86,14 @@ export const KOREAN_SAMPLE = [
   '호족', DATE.text,
   '내정군사인사계략외교출진', '준비중', '군영전', '세력태수인구병력금군량',
   '닫기지도를탭하면닫힙니다', '창밖을', '명석가마', '유비군', '천하를도모하라',
+  // 전투 화면(src/battle — BATTLE.md §4): HUD·결과·컷인·토스트 문구와 기본 무장·무장기 이름
+  '전투개시아군적군승리패배무승부남은병력걸린시간무장기회다시지도로돌격대기후퇴',
+  '적을물리쳤습니다다음을기약합시다양군이물러났습니다전멸궤멸초과',
+  '관우장비하후돈전위청룡참포효맹공쌍극',
+  // sim.js REASON 문구(결과 패널 사유)·전투 시작 실패 토스트 — smoke 가 sim.js 도 대조한다(통합)
+  '남은병력비율양쪽동시궤멸시간초과전투를시작할수없습니다',
 ].join('');
 // ※ UIScene/MapScene 에 문구를 더하면 여기에도 그 글자를 넣어라 — tools/smoke.mjs 가 대조한다.
 
 /** 한자 표본 */
-export const HANJA_SAMPLE = CITIES.map((c) => c.hanja).join('') + '軍營傳';
+export const HANJA_SAMPLE = CITIES.map((c) => c.hanja).join('') + '軍營傳對';   // 對: 전투 인트로 「아군 對 적군」

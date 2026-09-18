@@ -142,7 +142,14 @@ globalThis.window = globalThis;
 globalThis.addEventListener = () => {};
 
 const mods = {};
-for (const rel of ['src/data/cities.js', 'src/data/factions.js', 'src/sfx.js', 'src/scenes/BootScene.js', 'src/scenes/MapScene.js', 'src/scenes/UIScene.js', 'src/main.js']) {
+// 전투(BATTLE.md §2): data.js·sim.js 는 다른 작업에서 오므로 있을 때만 import 한다. 화면 3파일과 더미 sim 은 항상.
+const BATTLE_OPTIONAL = ['src/battle/data.js', 'src/battle/sim.js'].filter((rel) => existsSync(join(ROOT, rel)));
+const IMPORTS = [
+  'src/data/cities.js', 'src/data/factions.js', 'src/sfx.js', 'src/scenes/BootScene.js', 'src/scenes/MapScene.js', 'src/scenes/UIScene.js',
+  'src/battle/fx.js', 'src/battle/BattleScene.js', 'src/battle/BattleHud.js', 'assets/raw/battle/sim-stub.mjs', ...BATTLE_OPTIONAL,
+  'src/main.js',
+];
+for (const rel of IMPORTS) {
   try {
     mods[rel] = await import(pathToFileURL(join(ROOT, rel)).href);
     ok(`import ${rel}`);
@@ -157,12 +164,16 @@ const boot = mods['src/scenes/BootScene.js'];
 const map = mods['src/scenes/MapScene.js'];
 const ui = mods['src/scenes/UIScene.js'];
 const main = mods['src/main.js'];
+const battle = mods['src/battle/BattleScene.js'];
+const hud = mods['src/battle/BattleHud.js'];
 
 check(boot && typeof boot.default === 'function' && boot.default.prototype instanceof Scene, 'BootScene default export 는 Phaser.Scene 서브클래스');
 check(map && typeof map.default === 'function' && map.default.prototype instanceof Scene, 'MapScene default export 는 Phaser.Scene 서브클래스');
 check(ui && typeof ui.default === 'function' && ui.default.prototype instanceof Scene, 'UIScene default export 는 Phaser.Scene 서브클래스');
+check(battle && typeof battle.default === 'function' && battle.default.prototype instanceof Scene, 'BattleScene default export 는 Phaser.Scene 서브클래스');
+check(hud && typeof hud.default === 'function' && hud.default.prototype instanceof Scene, 'BattleHud default export 는 Phaser.Scene 서브클래스');
 check(main && main.GAME_H === 720 && main.GAME_W >= 1280 && main.GAME_W <= 2400, 'main.js 논리 해상도 세로 720 · 가로 1280~2400(창 비율)');
-check(globalThis.__game && globalThis.__game.config && globalThis.__game.config.scene.length === 3, 'main.js 가 Phaser.Game 을 씬 3개로 만든다');
+check(globalThis.__game && globalThis.__game.config && globalThis.__game.config.scene.length === 5, 'main.js 가 Phaser.Game 을 씬 5개(Boot·Map·UI·Battle·BattleHud)로 만든다');
 
 // ─────────────────────────────────────────────────────────────
 // 2) BootScene.ASSETS ↔ 계약
@@ -214,10 +225,14 @@ section('5) 폰트 표본 — UI 문구의 글자가 KOREAN_SAMPLE / HANJA_SAMPL
 if (factions) {
   const ko = new Set(factions.KOREAN_SAMPLE);
   const hj = new Set(factions.HANJA_SAMPLE);
-  // BootScene 은 화면에 글자를 안 그린다(console.warn 뿐) → 대상은 텍스트를 만드는 두 씬
-  for (const rel of ['src/scenes/UIScene.js', 'src/scenes/MapScene.js']) {
+  // BootScene 은 화면에 글자를 안 그린다(console.warn 뿐) → 대상은 텍스트를 만드는 씬들 + 전투 화면(기본 무장 이름·문구)
+  //   + sim.js(결과 사유 REASON 문구를 HUD 가 그대로 그린다)·data.js(무장·무장기 이름) — 통합에서 추가
+  for (const rel of ['src/scenes/UIScene.js', 'src/scenes/MapScene.js', 'src/battle/BattleScene.js', 'src/battle/BattleHud.js', 'src/battle/fx.js',
+    'src/battle/sim.js', 'src/battle/data.js'].filter((r) => existsSync(join(ROOT, r)))) {
     let src = readFileSync(join(ROOT, rel), 'utf8');
     src = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
+    src = src.replace(/console\.\w+\(.*\)/g, '');   // 콘솔 문구는 화면에 안 그린다
+
     const lits = [...src.matchAll(/(['"`])((?:\\.|(?!\1)[^\\\n])*)\1/g)].map((m) => m[2]).join('');
     const missKo = [...new Set(lits.match(/[가-힣]/g) || [])].filter((ch) => !ko.has(ch));
     const missHj = [...new Set(lits.match(/[一-鿿]/g) || [])].filter((ch) => !hj.has(ch));
@@ -248,6 +263,118 @@ if (ui && ui.LAYOUT) {
   check(h.resX + 3 * h.resStep + 150 <= h.playerX - 20, 'HUD 자원 4칸이 플레이어 표식 앞에서 끝남');
   check(h.playerX + 20 + 100 <= h.safeX[1], `HUD 플레이어 표식이 오른쪽 메달리온(x>${h.safeX[1]}) 을 피함`);
   check(h.icon === 28, 'HUD 아이콘 28px');
+}
+
+// ─────────────────────────────────────────────────────────────
+// 6) 전투 (BATTLE.md) — HUD 배치 제약, 선택 에셋 크기(있을 때만), sim 계약(sim.js 없으면 더미로)
+// ─────────────────────────────────────────────────────────────
+
+section('6) 전투 HUD 배치 제약 (BattleHud.HUD_LAYOUT) — 폰 가로 기준 버튼 ≥ 72px');
+if (hud && hud.HUD_LAYOUT) {
+  const L = hud.HUD_LAYOUT;
+  const DESIGN = { panel: 48, parchment: 24, button: 32 };
+  const nine = (name, w, h, corner, design) => {
+    check(corner <= design, `${name} corner ${corner} ≤ 그림 모서리 ${design}`);
+    check(corner * 2 <= Math.min(w, h), `${name} ${w}×${h}: 2×${corner} ≤ 짧은 변`);
+  };
+  nine('병법 버튼(button)', L.tactic.w, L.tactic.h, L.tactic.corner, DESIGN.button);
+  nine('결과 패널(panel)', L.result.panel.w, L.result.panel.h, L.result.panel.corner, DESIGN.panel);
+  nine('결과 한지(parchment)', L.result.parchment.w, L.result.parchment.h, L.result.parchment.corner, DESIGN.parchment);
+  nine('결과 버튼(button)', L.result.button.w, L.result.button.h, L.result.button.corner, DESIGN.button);
+  check(L.tactic.h >= 72 && L.result.button.h >= 72 && L.skill.r * 2 >= 72, '버튼 높이·무장기 버튼 지름 ≥ 72px');
+  const tacticW = 3 * L.tactic.w + 2 * L.tactic.gap;
+  check(tacticW + L.bar.margin <= 1280 / 2, `병법 3버튼 폭 ${tacticW} 이 화면 오른쪽 반 안(조이스틱 영역과 안 겹침)`);
+  check(L.result.parchment.w <= L.result.panel.w - 60 && L.result.parchment.h <= L.result.panel.h - 120, '결과 한지가 창틀 안쪽·버튼 위에 들어감');
+  check(L.gen.barX + L.gen.barW <= 1280 / 2 - 60, '무장 HP 바가 가운데 시간 표시를 안 침범');
+}
+
+section('6) 전투 선택 에셋 (BootScene.BATTLE_ASSETS) — 있으면 크기 검사, 없으면 통과');
+if (boot && Array.isArray(boot.BATTLE_ASSETS)) {
+  const EXPECT = { 'battle/sky.png': [2048, 720], 'battle/far.png': [2048, 360], 'battle/ground.png': [1024, 320] };
+  for (const [key, rel] of boot.BATTLE_ASSETS) {
+    const p = join(ASSET_DIR, rel);
+    if (!existsSync(p)) continue;
+    const info = imageSize(readFileSync(p));
+    if (!info) { bad(`${rel} 이미지 헤더를 못 읽음`); continue; }
+    const want = EXPECT[rel] || (rel.startsWith('battle/units/') ? [96, 128] : null);
+    if (want) check(info.w === want[0] && info.h === want[1], `'${key}' ${rel} ${info.w}×${info.h} (계약 ${want[0]}×${want[1]})`);
+    else ok(`'${key}' ${rel} ${info.w}×${info.h} 있음`);
+    if (/battle\/(far\.png|cutin\/|units\/)/.test(rel)) check(info.alpha, `${rel} 알파 채널`);   // 하늘·땅은 불투명이어도 된다
+  }
+  const keys = boot.BATTLE_ASSETS.map((a) => a[0]);
+  check(new Set(keys).size === keys.length, 'BATTLE_ASSETS 키 중복 없음');
+  // 통합: BATTLE.md §5 의 12 파일 중 납품된 10개는 이제 필수(사라지면 실패). 컷인 하후돈·전위는 아직 없어 선택으로 남긴다.
+  const paths = new Set(boot.BATTLE_ASSETS.map((a) => a[1]));
+  const REQUIRED = ['battle/sky.png', 'battle/far.png', 'battle/ground.png', 'battle/cutin/guanyu.png', 'battle/cutin/zhangfei.png',
+    ...['inf', 'spear', 'bow', 'cav', 'general_left', 'general_right'].map((n) => `battle/units/${n}.png`)];
+  for (const rel of REQUIRED) check(existsSync(join(ASSET_DIR, rel)) && paths.has(rel), `${rel} 납품됨 + BATTLE_ASSETS 가 로드`);
+  for (const rel of ['battle/cutin/xiahoudun.png', 'battle/cutin/dianwei.png']) check(paths.has(rel), `${rel} (아직 없음 — 오면 자동 로드) BATTLE_ASSETS 에 있음`);
+}
+
+section('6) 전투 파일·상수 일치 (통합)');
+{
+  check(BATTLE_OPTIONAL.length === 2, 'src/battle/sim.js·data.js 존재(더 이상 선택이 아님)');
+  check(existsSync(join(ROOT, 'tools/battle-bench.mjs')), 'tools/battle-bench.mjs 존재 (node tools/battle-bench.mjs 로 sim 판정)');
+  check(existsSync(join(ROOT, 'assets/raw/battle/view-check.mjs')), 'assets/raw/battle/view-check.mjs 존재 (헤드리스 화면 점검)');
+  const dataMod = mods['src/battle/data.js'];
+  if (dataMod && battle && battle.FIELD) {
+    const F = dataMod.FIELD, V = battle.FIELD;
+    check(F.W === V.w && F.H === V.h && F.GROUND_TOP === V.top && F.GROUND_BOTTOM === V.bottom,
+      `BattleScene.FIELD ${V.w}×${V.h} 땅 ${V.top}~${V.bottom} = data.js FIELD ${F.W}×${F.H} 땅 ${F.GROUND_TOP}~${F.GROUND_BOTTOM}`);
+    // 컷인 텍스처 키 cutin_<key> ↔ 무장 key
+    const gk = Object.values(dataMod.GENERALS).map((g) => g.key);
+    const cutKeys = new Set(boot.BATTLE_ASSETS.map((a) => a[0]).filter((k) => k.startsWith('cutin_')).map((k) => k.slice(6)));
+    check(gk.every((k) => cutKeys.has(k)), `무장 key(${gk.join(',')}) 마다 BootScene 컷인 키 cutin_<key> 가 있음`);
+  }
+}
+
+section('6) sim 계약 (BATTLE.md §2.1) — ' + (BATTLE_OPTIONAL.includes('src/battle/sim.js') ? 'src/battle/sim.js' : '더미 assets/raw/battle/sim-stub.mjs'));
+{
+  const simMod = mods['src/battle/sim.js'] || mods['assets/raw/battle/sim-stub.mjs'];
+  const dataMod = mods['src/battle/data.js'];
+  const D = battle && battle.DEFAULT_DATA;
+  if (simMod && D) {
+    const left = (dataMod && dataMod.ARMY_LEFT) || D.ARMY_LEFT;
+    const right = (dataMod && dataMod.ARMY_RIGHT) || D.ARMY_RIGHT;
+    const run = (seed, steps) => {
+      const b = simMod.createBattle({ seed, left, right });
+      b.command('left', 'charge');
+      b.command('right', 'charge');
+      const types = new Set();
+      for (let i = 0; i < steps; i++) {
+        b.step(16.7);
+        for (const e of b.drainEvents()) types.add(e.type);
+      }
+      return { b, types };
+    };
+    const { b, types } = run(1, 60 * 30);   // 30초
+    const U = b.units;
+    check(typeof b.step === 'function' && typeof b.drainEvents === 'function' && typeof b.command === 'function'
+      && typeof b.setGeneralInput === 'function' && typeof b.useSkill === 'function' && typeof b.generalsOf === 'function'
+      && typeof b.countAlive === 'function', 'createBattle() 가 §2.1 메서드를 전부 가진다');
+    check(Array.isArray(U) && U.length === 244, `units ${U.length}개 (편당 무장 2 + 병사 120)`);
+    check(b.generalsOf('left').length === 2 && b.generalsOf('right').length === 2, '무장 편당 2');
+    const fields = ['id', 'side', 'kind', 'generalId', 'x', 'y', 'facing', 'hp', 'maxHp', 'state', 'attackT', 'vx', 'vy'];
+    check(U.every((u) => fields.every((f) => f in u)), `Unit 필드 ${fields.join('·')}`);
+    check(U.every((u) => u.id === U.indexOf(u)), 'units 배열 인덱스 = id (view 가 id 로 스프라이트를 맵핑)');
+    check(b.generalsOf('left').every((g) => 'gauge' in g && 'skill' in g && g.name), '무장 Unit 에 name·gauge·skill');
+    // 덧붙인 필드(통합에서 view 가 쓰기로 한 것): Unit.key(컷인 파일명)·alive, result.time, playerOf, skillCount
+    check(b.generalsOf('left').every((g) => typeof g.key === 'string') && U.every((u) => 'alive' in u), '덧붙인 Unit 필드 key(무장)·alive');
+    check(typeof b.playerOf === 'function' && b.skillCount && typeof b.skillCount.left === 'number', '덧붙인 API playerOf·skillCount');
+    check(typeof b.time === 'number' && b.time > 29000, `time ${Math.round(b.time)}ms`);
+    check(types.has('hit') && types.has('death'), `30초 안에 hit·death 이벤트 (${[...types].join(',')})`);
+    check(U.every((u) => ['idle', 'move', 'attack', 'hurt', 'stun', 'flee', 'dead', 'gone'].includes(u.state)), 'state 값이 계약 안');
+    // 결정성: 같은 seed 두 번 = 같은 hp 합
+    const sum = (bb) => bb.units.reduce((s, u) => s + u.hp, 0);
+    const a1 = run(3, 600).b, a2 = run(3, 600).b;
+    check(sum(a1) === sum(a2), `결정성: seed 3 두 번 hp 합 ${sum(a1)} = ${sum(a2)}`);
+    // 종료: 180초 안에 result
+    const { b: bEnd } = run(2, 60 * 185);
+    check(bEnd.result && ['left', 'right', 'draw'].includes(bEnd.result.winner), `185초 뒤 result ${bEnd.result ? bEnd.result.winner + ' (' + bEnd.result.reason + ')' : '없음'}`);
+    check(!bEnd.result || typeof bEnd.result.time === 'number', 'result.time(ms) — 결과 패널 「걸린 시간」');
+  } else {
+    bad('sim 또는 BattleScene.DEFAULT_DATA 를 못 읽음');
+  }
 }
 
 // ─────────────────────────────────────────────────────────────

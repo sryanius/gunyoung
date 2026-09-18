@@ -76,8 +76,10 @@ export default class MapScene extends Phaser.Scene {
     this.setupCamera();
     this.setupInput();
 
-    // UI 는 위에 겹친다
-    this.scene.launch('UIScene');
+    // UI 는 위에 겹친다. 전투에서 돌아올 때 BattleScene 이 { ui: { noIntro, toast } } 를 넘긴다(BATTLE.md §4.1)
+    this.scene.launch('UIScene', (this.scene.settings.data || {}).ui);
+    // 전투에서 「지도로」로 돌아올 때마다 이 씬이 restart 되는데 sys.events 는 shutdown 에서 안 비워져 리스너가 판마다 쌓인다 → 먼저 지운다(통합 검수)
+    this.events.off('city:close');
     this.events.on('city:close', () => this.setSelected(null));
   }
 

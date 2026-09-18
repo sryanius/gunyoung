@@ -58,7 +58,76 @@ export const BATTLE_ASSETS = [
   ['bunit_general_left',  'battle/units/general_left.png'],
   ['bunit_general_right', 'battle/units/general_right.png'],
 ];
-const BATTLE_KEYS = new Set(BATTLE_ASSETS.map((a) => a[0]));
+/**
+ * BATTLE_ART.md §1~§4 — 전투 2차 그림(전부 선택). [키, 경로, 폭, 높이, 알파 필요, 'max'(폭·높이 ≤ 검사) | 없음(정확히 일치)]
+ *   키 = 폴더 접두사 + 파일명 그대로:  units2/<n>.png → 'u2_<n>' · field/<n>.png → 'field_<n>' · fx/<n>.png → 'fx_<n>' · hud/<n>.png → 'hud_<n>'
+ *   없으면 loaderror → registry 'missingBattle2' 에 키를 남기고, 코드는 1차 그림(units/<kind>.png + tint)·Graphics 폴백으로 돈다.
+ *   fx·안개·깃발·데칼은 없을 때 같은 키로 캔버스 자리표시를 만들어 둔다(makeBattle2Fallbacks) — 연출 경로는 하나로.
+ *   tools/smoke.mjs §6 이 이 표로 「있으면 크기·알파 검사, 없으면 경고」 를 한다.
+ */
+export const BATTLE2_ASSETS = [
+  // §1 유닛 — 128×160 알파, 오른쪽 보기, 발끝 y≈152 (origin 0.5·0.95). <kind>_<g|b>_<stand|attack>, 무장은 side 없음
+  ['u2_inf_g_stand',            'battle/units2/inf_g_stand.png',            128, 160, true],
+  ['u2_inf_g_attack',           'battle/units2/inf_g_attack.png',           128, 160, true],
+  ['u2_inf_b_stand',            'battle/units2/inf_b_stand.png',            128, 160, true],
+  ['u2_inf_b_attack',           'battle/units2/inf_b_attack.png',           128, 160, true],
+  ['u2_spear_g_stand',          'battle/units2/spear_g_stand.png',          128, 160, true],
+  ['u2_spear_g_attack',         'battle/units2/spear_g_attack.png',         128, 160, true],
+  ['u2_spear_b_stand',          'battle/units2/spear_b_stand.png',          128, 160, true],
+  ['u2_spear_b_attack',         'battle/units2/spear_b_attack.png',         128, 160, true],
+  ['u2_bow_g_stand',            'battle/units2/bow_g_stand.png',            128, 160, true],
+  ['u2_bow_g_attack',           'battle/units2/bow_g_attack.png',           128, 160, true],
+  ['u2_bow_b_stand',            'battle/units2/bow_b_stand.png',            128, 160, true],
+  ['u2_bow_b_attack',           'battle/units2/bow_b_attack.png',           128, 160, true],
+  ['u2_cav_g_stand',            'battle/units2/cav_g_stand.png',            128, 160, true],
+  ['u2_cav_g_attack',           'battle/units2/cav_g_attack.png',           128, 160, true],
+  ['u2_cav_b_stand',            'battle/units2/cav_b_stand.png',            128, 160, true],
+  ['u2_cav_b_attack',           'battle/units2/cav_b_attack.png',           128, 160, true],
+  ['u2_gen_guanyu_stand',       'battle/units2/gen_guanyu_stand.png',       128, 160, true],
+  ['u2_gen_guanyu_attack',      'battle/units2/gen_guanyu_attack.png',      128, 160, true],
+  ['u2_gen_zhangfei_stand',     'battle/units2/gen_zhangfei_stand.png',     128, 160, true],
+  ['u2_gen_zhangfei_attack',    'battle/units2/gen_zhangfei_attack.png',    128, 160, true],
+  ['u2_gen_xiahoudun_stand',    'battle/units2/gen_xiahoudun_stand.png',    128, 160, true],
+  ['u2_gen_xiahoudun_attack',   'battle/units2/gen_xiahoudun_attack.png',   128, 160, true],
+  ['u2_gen_dianwei_stand',      'battle/units2/gen_dianwei_stand.png',      128, 160, true],
+  ['u2_gen_dianwei_attack',     'battle/units2/gen_dianwei_attack.png',     128, 160, true],
+  // §2 전장
+  ['field_ground',              'battle/field/ground.png',                  2048, 360, true],    // 가로 seamless, 아래 변 = y 720. (통합) 알파 필요: 윗변 40px 알파 페이드를 전제로 y 360 부터 깔고 중경 밑변을 y 392 에 둔다(BattleScene GROUND2_H·MID_BASE) — 불투명 땅이 오면 y 360 에 직선이 생긴다
+  ['field_mid',                 'battle/field/mid.png',                     2048, 260, true],    // 중경 띠, 위 알파 페이드
+  ['field_fog',                 'battle/field/fog.png',                     1024, 160, true],    // 가로 반복 안개
+  ['field_tent',                'battle/field/tent.png',                    256, 256, true, 'max'],
+  ['field_palisade',            'battle/field/palisade.png',                256, 256, true, 'max'],
+  ['field_tree_dead',           'battle/field/tree_dead.png',               256, 256, true, 'max'],
+  ['field_rock1',               'battle/field/rock1.png',                   256, 256, true, 'max'],
+  ['field_rock2',               'battle/field/rock2.png',                   256, 256, true, 'max'],
+  ['field_banner_g',            'battle/field/banner_g.png',                64, 192, true],
+  ['field_banner_b',            'battle/field/banner_b.png',                64, 192, true],
+  ['field_flag_g',              'battle/field/flag_g.png',                  48, 72, true],       // 기수 깃발 — 깃대가 왼쪽, 천이 오른쪽(코드가 뒤집는다)
+  ['field_flag_b',              'battle/field/flag_b.png',                  48, 72, true],
+  ['field_blood1',              'battle/field/blood1.png',                  128, 64, true],
+  ['field_blood2',              'battle/field/blood2.png',                  128, 64, true],
+  ['field_crater',              'battle/field/crater.png',                  128, 64, true],
+  // §3 이펙트 — 검정 배경에 밝은색, ADD 블렌드
+  ['fx_slash_blue',             'battle/fx/slash_blue.png',                 512, 256, false],
+  ['fx_slash_white',            'battle/fx/slash_white.png',                256, 128, false],
+  ['fx_ring',                   'battle/fx/ring.png',                       256, 256, false],
+  ['fx_spark',                  'battle/fx/spark.png',                      64, 64, false],
+  ['fx_dust',                   'battle/fx/dust.png',                       128, 128, false],
+  ['fx_speedlines',             'battle/fx/speedlines.png',                 1024, 512, false],
+  ['fx_impact',                 'battle/fx/impact.png',                     128, 128, false],
+  // §4 HUD
+  ['hud_portrait_guanyu',       'battle/hud/portrait_guanyu.png',           96, 120, false],
+  ['hud_portrait_zhangfei',     'battle/hud/portrait_zhangfei.png',         96, 120, false],
+  ['hud_portrait_xiahoudun',    'battle/hud/portrait_xiahoudun.png',        96, 120, false],
+  ['hud_portrait_dianwei',      'battle/hud/portrait_dianwei.png',          96, 120, false],
+  ['hud_portrait_frame',        'battle/hud/portrait_frame.png',            112, 136, true],
+  ['hud_bar_frame',             'battle/hud/bar_frame.png',                 320, 40, true],      // 9-slice — 덮개는 12px 이지만 윤곽선이 1~2px 넘어 코드는 14 로 자른다(BattleHud.HUD_LAYOUT)
+  ['hud_medallion',             'battle/hud/medallion.png',                 160, 160, true],
+  ['hud_skill_guanyu',          'battle/hud/skill_guanyu.png',              64, 64, false],      // 메달리온 구멍 안에 깔린다(모서리는 테에 가린다)
+  ['hud_skill_zhangfei',        'battle/hud/skill_zhangfei.png',            64, 64, false],
+];
+const BATTLE_KEYS = new Set([...BATTLE_ASSETS, ...BATTLE2_ASSETS].map((a) => a[0]));
+const BATTLE2_KEYS = new Set(BATTLE2_ASSETS.map((a) => a[0]));
 
 /** 결정적 난수(자리표시 그림이 매번 같게) */
 function rng(seed) {
@@ -105,9 +174,13 @@ export default class BootScene extends Phaser.Scene {
     this.missingBattle = new Set();   // 전투 선택 에셋은 따로 센다(없는 게 정상일 수 있어 경고 문구를 나눈다)
     this.load.setPath('assets/');
     // 실패한 파일은 키만 기록한다 (Phaser 가 콘솔에 오류를 찍지만 진행에는 지장 없다)
-    this.load.on('loaderror', (file) => { (BATTLE_KEYS.has(file.key) ? this.missingBattle : this.missing).add(file.key); });
+    this.missingBattle2 = new Set();  // BATTLE_ART.md 2차 그림 — 전부 선택(그림 담당이 아직 만드는 중일 수 있다)
+    this.load.on('loaderror', (file) => {
+      (BATTLE2_KEYS.has(file.key) ? this.missingBattle2 : BATTLE_KEYS.has(file.key) ? this.missingBattle : this.missing).add(file.key);
+    });
     for (const [key, path] of ASSETS) this.load.image(key, path);
     for (const [key, path] of BATTLE_ASSETS) this.load.image(key, path);
+    for (const [key, path] of BATTLE2_ASSETS) this.load.image(key, path);
 
     // 진행 바 — 폰트가 아직 없으니 글자는 그리지 않는다
     // 컨테이너에 넣어 로딩 중 창 비율이 바뀌어도(main.js relayout → RESIZE) 가운데를 지킨다
@@ -140,6 +213,16 @@ export default class BootScene extends Phaser.Scene {
     this.registry.set('missingBattle', missingBattle);
     if (missingBattle.length) console.info('[군영전] 전투 선택 에셋 없음(코드 폴백):', missingBattle.join(', '));
     this.makeBattleTextures(missingBattle);
+
+    // 전투 2차 그림(BATTLE_ART.md): 없는 키를 registry 'missingBattle2' 에 남기고, fx·안개·깃발·데칼·비네트는 캔버스 자리표시로 채운다.
+    //   유닛(u2_*)·전장 큰 그림(ground/mid/소품)·HUD 그림은 자리표시를 만들지 않는다 — 씬이 textures.exists 로 1차 방식에 폴백.
+    for (const [key] of BATTLE2_ASSETS) if (!this.textures.exists(key)) this.missingBattle2.add(key);
+    const missingBattle2 = [...this.missingBattle2];
+    this.registry.set('missingBattle2', missingBattle2);
+    if (missingBattle2.length) {
+      console.info(`[군영전] 전투 2차 그림 없음 ${missingBattle2.length}/${BATTLE2_ASSETS.length} (1차 그림·코드 폴백):`, missingBattle2.join(', '));
+    }
+    this.makeBattle2Fallbacks();
 
     await waitFonts();
     this.scene.start('MapScene');
@@ -413,6 +496,260 @@ export default class BootScene extends Phaser.Scene {
         c.fillStyle = 'rgba(120,110,95,0.85)'; c.beginPath(); c.ellipse(xx, y, r, r * 0.6, 0, 0, Math.PI * 2); c.fill();
         c.fillStyle = 'rgba(0,0,0,0.25)'; c.beginPath(); c.ellipse(xx + 1, y + r * 0.5, r, r * 0.35, 0, 0, Math.PI * 2); c.fill();
       }, x);
+    }
+    t.refresh();
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 전투 2차(BATTLE_ART.md §5) — 그림이 없을 때 같은 키로 만드는 캔버스 자리표시 + 늘 만드는 비네트·원근 그라데이션
+  //   fx 는 투명 바탕에 흰/밝은색(ADD 블렌드라 검정 배경 그림과 똑같이 얹힌다).
+  // ─────────────────────────────────────────────────────────────
+
+  makeBattle2Fallbacks() {
+    const has = (k) => this.textures.exists(k);
+    // 늘 만드는 것(계약 밖): 비네트(HUD 씬 맨 아래), 땅 원근 그라데이션(위 어둡게 0→0.33 램프 → 아래 0)
+    if (!has('battle_vignette')) this.fbVignette();
+    if (!has('battle_shade')) this.fbShade();
+    // 없을 때만: 안개·기수 깃발·데칼·fx 7종
+    if (!has('field_fog')) this.fbFog();
+    if (!has('field_flag_g')) this.fbSmallFlag('field_flag_g', '#3aa655', '#1f6b35');
+    if (!has('field_flag_b')) this.fbSmallFlag('field_flag_b', '#3b6fd6', '#213f8a');
+    if (!has('field_blood1') && !has('field_blood2')) this.fbBlood();
+    if (!has('field_crater')) this.fbCrater();
+    if (!has('fx_spark')) this.fbFxSpark();
+    if (!has('fx_dust')) this.fbFxDust();
+    if (!has('fx_ring')) this.fbFxRing();
+    if (!has('fx_impact')) this.fbFxImpact();
+    if (!has('fx_slash_white')) this.fbFxCrescent('fx_slash_white', 256, 128, [255, 250, 225], [255, 236, 170]);
+    if (!has('fx_slash_blue')) this.fbFxCrescent('fx_slash_blue', 512, 256, [225, 245, 255], [70, 150, 255]);
+    if (!has('fx_speedlines')) this.fbFxSpeedlines();
+  }
+
+  /** 비네트 256×144 — 가운데 투명, 모서리 알파 0.45. HUD 씬이 화면 크기로 늘려 쓴다 */
+  fbVignette() {
+    const Wd = 256, Hd = 144;
+    const t = this.textures.createCanvas('battle_vignette', Wd, Hd);
+    const c = t.context;
+    c.clearRect(0, 0, Wd, Hd);
+    c.save();
+    c.translate(Wd / 2, Hd / 2);
+    c.scale(1, Hd / Wd);                       // 타원으로 눌러 화면 비율에 맞춘다
+    const R = Wd / 2;
+    const g = c.createRadialGradient(0, 0, R * 0.62, 0, 0, R * 1.42);   // 1.414 = 모서리
+    g.addColorStop(0, 'rgba(8,5,12,0)');
+    g.addColorStop(0.55, 'rgba(8,5,12,0.16)');
+    g.addColorStop(1, 'rgba(8,5,12,0.45)');
+    c.fillStyle = g; c.fillRect(-R, -R, Wd, Wd);
+    c.restore();
+    t.refresh();
+  }
+
+  /** 땅 원근 그라데이션 4×64 — 위 알파 0 → 12% 에서 0.33 → 45% 에서 0.12 → 아래 0 (먼 곳이 어둡고 흐리게. 맨 위가 0 인 까닭은 아래 주석) */
+  fbShade() {
+    const t = this.textures.createCanvas('battle_shade', 4, 64);
+    const c = t.context;
+    c.clearRect(0, 0, 4, 64);
+    const g = c.createLinearGradient(0, 0, 0, 64);
+    // (그림 담당 수정) 맨 위는 알파 0 에서 시작해 12%(≈43px) 동안 0.33 까지 오른다. field/ground.png 는 윗변 40px 이 알파로 풀려
+    //   안개(mid·fog)에 녹는데, 그늘이 y=gTop 에서 0.35 로 뚝 시작하면 그 자리에 회색 직선(지평선 띠)이 다시 생긴다
+    //   (assets/raw/battle2/field/_mock_d_cmp.png 위 = 0.35 시작, 아래 = 이 램프). 1차 땅(불투명)에도 해가 없다.
+    g.addColorStop(0, 'rgba(14,10,24,0)');
+    g.addColorStop(0.12, 'rgba(14,10,24,0.33)');
+    g.addColorStop(0.45, 'rgba(14,10,24,0.12)');
+    g.addColorStop(1, 'rgba(14,10,24,0)');
+    c.fillStyle = g; c.fillRect(0, 0, 4, 64);
+    t.refresh();
+  }
+
+  /** 안개 띠 1024×160 — 가로 반복(조각을 x±1024 에도 찍는다), 위·아래 페이드 */
+  fbFog() {
+    const Wd = 1024, Hd = 160;
+    const t = this.textures.createCanvas('field_fog', Wd, Hd);
+    const c = t.context;
+    c.clearRect(0, 0, Wd, Hd);
+    const rnd = rng(53);
+    for (let i = 0; i < 60; i++) {
+      const x = rnd() * Wd, y = Hd / 2 + (rnd() - 0.5) * 60, r = 50 + rnd() * 90;
+      for (const xx of [x, x - Wd, x + Wd]) {
+        c.save();
+        c.translate(xx, y);
+        c.scale(1, 0.38);
+        const g = c.createRadialGradient(0, 0, 0, 0, 0, r);
+        g.addColorStop(0, 'rgba(255,250,240,0.16)'); g.addColorStop(1, 'rgba(255,250,240,0)');
+        c.fillStyle = g; c.fillRect(-r, -r, r * 2, r * 2);
+        c.restore();
+      }
+    }
+    // 위·아래 페이드
+    c.globalCompositeOperation = 'destination-in';
+    const m = c.createLinearGradient(0, 0, 0, Hd);
+    m.addColorStop(0, 'rgba(0,0,0,0)'); m.addColorStop(0.35, 'rgba(0,0,0,1)'); m.addColorStop(0.65, 'rgba(0,0,0,1)'); m.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = m; c.fillRect(0, 0, Wd, Hd);
+    c.globalCompositeOperation = 'source-over';
+    t.refresh();
+  }
+
+  /** 기수 깃발 48×72 — 깃대가 왼쪽(x 6~9), 천이 오른쪽. 편 색을 그림에 넣는다(Canvas 렌더러는 tint 불가) */
+  fbSmallFlag(key, cloth, dark) {
+    const t = this.textures.createCanvas(key, 48, 72);
+    const c = t.context;
+    c.clearRect(0, 0, 48, 72);
+    c.fillStyle = '#4a3420'; c.fillRect(6, 2, 3, 70);
+    c.fillStyle = '#d9b25a'; c.beginPath(); c.arc(7.5, 3, 3, 0, Math.PI * 2); c.fill();
+    c.fillStyle = cloth;
+    c.beginPath(); c.moveTo(9, 6); c.lineTo(45, 9); c.lineTo(39, 20); c.lineTo(45, 32); c.lineTo(9, 36); c.closePath(); c.fill();
+    c.strokeStyle = dark; c.lineWidth = 2; c.stroke();
+    c.fillStyle = 'rgba(255,255,255,0.28)'; c.fillRect(11, 10, 26, 4);
+    t.refresh();
+  }
+
+  /** 핏자국 128×64 — 검붉은 얼룩(납작한 타원 여러 개) */
+  fbBlood() {
+    const t = this.textures.createCanvas('field_blood1', 128, 64);
+    const c = t.context;
+    c.clearRect(0, 0, 128, 64);
+    const rnd = rng(77);
+    for (let i = 0; i < 14; i++) {
+      const x = 64 + (rnd() - 0.5) * 80, y = 32 + (rnd() - 0.5) * 26, rx = 6 + rnd() * 22, ry = rx * (0.3 + rnd() * 0.2);
+      c.fillStyle = `rgba(${70 + rnd() * 40 | 0},${10 + rnd() * 10 | 0},${8 + rnd() * 8 | 0},${0.35 + rnd() * 0.3})`;
+      c.beginPath(); c.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); c.fill();
+    }
+    t.refresh();
+  }
+
+  /** 패인 자국 128×64 — 어두운 타원 + 밝은 흙 테 */
+  fbCrater() {
+    const t = this.textures.createCanvas('field_crater', 128, 64);
+    const c = t.context;
+    c.clearRect(0, 0, 128, 64);
+    c.save();
+    c.translate(64, 32); c.scale(1, 0.45);
+    const g = c.createRadialGradient(0, 0, 4, 0, 0, 60);
+    g.addColorStop(0, 'rgba(30,20,12,0.7)'); g.addColorStop(0.6, 'rgba(40,28,16,0.45)');
+    g.addColorStop(0.8, 'rgba(190,160,110,0.28)'); g.addColorStop(1, 'rgba(190,160,110,0)');
+    c.fillStyle = g; c.fillRect(-64, -64, 128, 128);
+    c.restore();
+    t.refresh();
+  }
+
+  /** 타격 불꽃 64×64 — 네 갈래 별 + 빛 무리 */
+  fbFxSpark() {
+    const t = this.textures.createCanvas('fx_spark', 64, 64);
+    const c = t.context;
+    c.clearRect(0, 0, 64, 64);
+    const g = c.createRadialGradient(32, 32, 1, 32, 32, 30);
+    g.addColorStop(0, 'rgba(255,250,220,0.95)'); g.addColorStop(0.3, 'rgba(255,220,130,0.4)'); g.addColorStop(1, 'rgba(255,200,90,0)');
+    c.fillStyle = g; c.fillRect(0, 0, 64, 64);
+    c.fillStyle = 'rgba(255,255,255,0.95)';
+    for (const [lx, ly] of [[30, 4], [4, 30]]) {   // 세로·가로 마름모
+      c.beginPath(); c.moveTo(32 - lx, 32); c.lineTo(32, 32 - ly); c.lineTo(32 + lx, 32); c.lineTo(32, 32 + ly); c.closePath(); c.fill();
+    }
+    t.refresh();
+  }
+
+  /** 먼지 뭉치 128×128 — 부드러운 흰 구름 */
+  fbFxDust() {
+    const t = this.textures.createCanvas('fx_dust', 128, 128);
+    const c = t.context;
+    c.clearRect(0, 0, 128, 128);
+    const rnd = rng(91);
+    for (let i = 0; i < 9; i++) {
+      const x = 64 + (rnd() - 0.5) * 50, y = 64 + (rnd() - 0.5) * 40, r = 22 + rnd() * 26;
+      const g = c.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, 'rgba(255,255,255,0.3)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+      c.fillStyle = g; c.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+    t.refresh();
+  }
+
+  /** 충격파 링 256×256 */
+  fbFxRing() {
+    const t = this.textures.createCanvas('fx_ring', 256, 256);
+    const c = t.context;
+    c.clearRect(0, 0, 256, 256);
+    c.shadowColor = 'rgba(255,230,170,0.9)'; c.shadowBlur = 18;
+    c.strokeStyle = 'rgba(255,250,235,0.95)'; c.lineWidth = 9;
+    c.beginPath(); c.arc(128, 128, 104, 0, Math.PI * 2); c.stroke();
+    c.shadowBlur = 8;
+    c.strokeStyle = 'rgba(255,240,200,0.4)'; c.lineWidth = 4;
+    c.beginPath(); c.arc(128, 128, 84, 0, Math.PI * 2); c.stroke();
+    c.shadowBlur = 0;
+    t.refresh();
+  }
+
+  /** 돌진 충격 128×128 — 방사형 가시 + 가운데 빛 */
+  fbFxImpact() {
+    const t = this.textures.createCanvas('fx_impact', 128, 128);
+    const c = t.context;
+    c.clearRect(0, 0, 128, 128);
+    const rnd = rng(23);
+    c.fillStyle = 'rgba(255,245,215,0.9)';
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2 + rnd() * 0.2, len = 38 + rnd() * 24, w = 0.09 + rnd() * 0.06;
+      c.beginPath();
+      c.moveTo(64 + Math.cos(a - w) * 12, 64 + Math.sin(a - w) * 12);
+      c.lineTo(64 + Math.cos(a) * len, 64 + Math.sin(a) * len);
+      c.lineTo(64 + Math.cos(a + w) * 12, 64 + Math.sin(a + w) * 12);
+      c.closePath(); c.fill();
+    }
+    const g = c.createRadialGradient(64, 64, 0, 64, 64, 30);
+    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(1, 'rgba(255,230,160,0)');
+    c.fillStyle = g; c.fillRect(34, 34, 60, 60);
+    t.refresh();
+  }
+
+  /**
+   * 초승달 베기(오른쪽으로 볼록 — 왼→오른쪽으로 날아간다). slash_white 256×128 / slash_blue 512×256 공용.
+   * 바깥 호(중심 0.49w, 반지름 0.47h)와 같은 끝점을 지나는 안쪽 호(중심이 더 왼쪽)를 이어 끝이 뾰족한 초승달을 만든다.
+   */
+  fbFxCrescent(key, Wd, Hd, core, glow) {
+    const t = this.textures.createCanvas(key, Wd, Hd);
+    const c = t.context;
+    c.clearRect(0, 0, Wd, Hd);
+    const cy = Hd / 2, r1 = Hd * 0.47, cx1 = Wd * 0.49, A = 75 * Math.PI / 180;
+    const ex = cx1 + r1 * Math.cos(A), ey = r1 * Math.sin(A);          // 끝점(±ey)
+    const cx2 = cx1 - Hd * 0.31;
+    const r2 = Math.hypot(ex - cx2, ey), B = Math.atan2(ey, ex - cx2);
+    const rgba = (col, a) => `rgba(${col[0]},${col[1]},${col[2]},${a})`;
+    // 뒤로 끌리는 빛 꼬리
+    const tail = c.createLinearGradient(cx1 - Hd * 0.9, 0, cx1 + r1, 0);
+    tail.addColorStop(0, rgba(glow, 0)); tail.addColorStop(1, rgba(glow, 0.28));
+    c.fillStyle = tail;
+    c.beginPath(); c.moveTo(ex, cy - ey); c.lineTo(cx1 - Hd * 0.9, cy - ey * 0.25); c.lineTo(cx1 - Hd * 0.9, cy + ey * 0.25); c.lineTo(ex, cy + ey); c.closePath(); c.fill();
+    // 초승달
+    c.shadowColor = rgba(glow, 0.95); c.shadowBlur = Hd * 0.1;
+    const body = c.createLinearGradient(cx2 + r2 - Hd * 0.12, 0, cx1 + r1, 0);
+    body.addColorStop(0, rgba(glow, 0.55)); body.addColorStop(1, rgba(core, 1));
+    c.fillStyle = body;
+    for (let i = 0; i < 2; i++) {   // 두 번 칠해 빛 무리를 진하게
+      c.beginPath();
+      c.arc(cx1, cy, r1, -A, A, false);
+      c.arc(cx2, cy, r2, B, -B, true);
+      c.closePath(); c.fill();
+    }
+    c.shadowBlur = 0;
+    t.refresh();
+  }
+
+  /** 컷인 집중선 1024×512 — 가운데(타원) 비고 바깥으로 흰 쐐기 */
+  fbFxSpeedlines() {
+    const Wd = 1024, Hd = 512;
+    const t = this.textures.createCanvas('fx_speedlines', Wd, Hd);
+    const c = t.context;
+    c.clearRect(0, 0, Wd, Hd);
+    const rnd = rng(61);
+    const cx = Wd / 2, cy = Hd / 2;
+    for (let i = 0; i < 150; i++) {
+      const a = rnd() * Math.PI * 2, inner = 0.34 + rnd() * 0.3, w = 0.004 + rnd() * 0.012;
+      // 타원 좌표(가로 2 : 세로 1) — 바깥 끝은 캔버스 밖까지
+      const px = (k, ang) => cx + Math.cos(ang) * k * Wd * 0.5;
+      const py = (k, ang) => cy + Math.sin(ang) * k * Hd * 0.5;
+      c.fillStyle = `rgba(255,255,255,${0.35 + rnd() * 0.5})`;
+      c.beginPath();
+      c.moveTo(px(inner, a), py(inner, a));
+      c.lineTo(px(1.6, a - w), py(1.6, a - w));
+      c.lineTo(px(1.6, a + w), py(1.6, a + w));
+      c.closePath(); c.fill();
     }
     t.refresh();
   }

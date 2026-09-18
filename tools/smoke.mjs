@@ -285,7 +285,83 @@ if (hud && hud.HUD_LAYOUT) {
   const tacticW = 3 * L.tactic.w + 2 * L.tactic.gap;
   check(tacticW + L.bar.margin <= 1280 / 2, `병법 3버튼 폭 ${tacticW} 이 화면 오른쪽 반 안(조이스틱 영역과 안 겹침)`);
   check(L.result.parchment.w <= L.result.panel.w - 60 && L.result.parchment.h <= L.result.panel.h - 120, '결과 한지가 창틀 안쪽·버튼 위에 들어감');
-  check(L.gen.barX + L.gen.barW <= 1280 / 2 - 60, '무장 HP 바가 가운데 시간 표시를 안 침범');
+  // 2차 HUD(BATTLE_ART §5): 무장 블록 둘을 가로로 — 왼쪽 묶음 끝 = margin + 2×blockW + gap. 블록 안에서 HP 바가 안 넘치는지도 본다
+  const genEnd = L.bar.margin + 2 * L.gen.blockW + L.gen.gap;
+  check(genEnd <= 1280 / 2 - 60, `무장 블록 묶음 끝 x ${genEnd} 이 가운데 시간 표시(580)를 안 침범`);
+  check(L.gen.textX >= L.gen.frameW + 4 && L.gen.textX + L.gen.barW <= L.gen.blockW, '무장 블록 안에 초상 테두리·HP 바가 안 겹치고 들어감');
+  // hud/bar_frame.png 320×40 — HP 바·병력 바 9-slice. 덮개는 12px 이지만 윤곽선이 열·행 12~13 까지 나와 있어(통합 실측: 12 로 자르면
+  //   늘어나는 구간 열 차 255, 14 로 자르면 3) 모서리는 14 — 바를 넓게 늘려도 덮개 윤곽이 같이 안 굵어진다
+  nine('무장 HP 바(bar_frame)', L.gen.barW, L.gen.barH, L.gen.corner, 14);
+  nine('병력 바(bar_frame)', L.bar.w, L.bar.h, L.bar.corner, 14);
+  check(L.bar.corner >= 14 && L.gen.corner >= 14, 'bar_frame 9-slice 모서리 ≥ 14 (덮개 윤곽선까지 모서리 조각에)');
+  check(L.gen.barH - 2 * L.gen.inset >= 22, `무장 HP 바 채움 높이 ${L.gen.barH - 2 * L.gen.inset} ≥ 22px (폰 0.54배 → 12px)`);
+  // 초상 테두리 아래 끝 ↔ HP 바 아래 끝 ↔ BattleScene.HUD_TOP
+  check(L.gen.y + L.gen.barDy + L.gen.barH / 2 <= L.gen.y + L.gen.frameH / 2, '무장 HP 바 아래 끝이 초상 테두리 아래 끝(HUD_TOP) 안');
+  check(L.skill.medallion >= 72 && L.skill.arcR < L.skill.medallion / 2, '무장기 메달리온 ≥ 72px · 게이지 호가 메달리온 안');
+  // medallion.png(160 기준) 목재 띠 37~50 — 게이지 호(arcR ± arcW/2, 표시 px)가 그 안에(통합 실측 assets/raw/battle2/_integ_hud_probe.py)
+  {
+    const k = L.skill.medallion / 160, lo = L.skill.arcR - L.skill.arcW / 2, hi = L.skill.arcR + L.skill.arcW / 2;
+    check(lo >= 36.5 * k && hi <= 51 * k, `게이지 호 ${lo}~${hi}px 가 메달리온 목재 띠 ${(36.5 * k).toFixed(1)}~${(51 * k).toFixed(1)}px 안`);
+  }
+}
+
+section('6) 전투 2차 그림 (BootScene.BATTLE2_ASSETS, BATTLE_ART.md §1~§4) — 전부 선택: 없으면 경고만, 있으면 크기·알파 검사');
+let warns = 0;
+const warn = (msg) => { warns++; console.log(`  warn ${msg}`); };
+if (boot && Array.isArray(boot.BATTLE2_ASSETS)) {
+  const keys = boot.BATTLE2_ASSETS.map((a) => a[0]);
+  check(new Set(keys).size === keys.length, `BATTLE2_ASSETS 키 ${keys.length}개 중복 없음`);
+  // 키 규칙: 폴더 접두사 + 파일명 (units2→u2_, field→field_, fx→fx_, hud→hud_) — 통합 담당이 파일명만 보고 키를 안다
+  const PREFIX = { units2: 'u2_', field: 'field_', fx: 'fx_', hud: 'hud_' };
+  check(boot.BATTLE2_ASSETS.every(([key, rel]) => {
+    const m = /^battle\/(units2|field|fx|hud)\/([a-z0-9_]+)\.png$/.exec(rel);
+    return m && key === PREFIX[m[1]] + m[2];
+  }), 'BATTLE2_ASSETS 키 = 폴더 접두사 + 파일명');
+  const old = new Set([...boot.ASSETS, ...boot.BATTLE_ASSETS].map((a) => a[0]));
+  check(keys.every((k) => !old.has(k)), '2차 키가 1차 키와 안 겹침');
+  let have = 0;
+  const missing = [];
+  for (const [key, rel, w, h, needAlpha, rule] of boot.BATTLE2_ASSETS) {
+    const p = join(ASSET_DIR, rel);
+    if (!existsSync(p)) { missing.push(rel.replace('battle/', '')); continue; }
+    have++;
+    const info = imageSize(readFileSync(p));
+    if (!info || info.fmt !== 'png') { bad(`${rel} PNG 헤더를 못 읽음`); continue; }
+    if (rule === 'max') check(info.w <= w && info.h <= h, `'${key}' ${rel} ${info.w}×${info.h} ≤ ${w}×${h}`);
+    else check(info.w === w && info.h === h, `'${key}' ${rel} ${info.w}×${info.h}${info.w === w && info.h === h ? '' : ` (계약 ${w}×${h})`}`);
+    if (needAlpha) check(info.alpha, `${rel} 알파 채널`);
+  }
+  if (missing.length) warn(`2차 그림 ${missing.length}/${keys.length} 없음(코드 폴백으로 돈다): ${missing.join(', ')}`);
+  else ok(`2차 그림 ${have}개 전부 있음`);
+  // 코드가 쓰는 2차 키가 전부 표에 있는가 — 전투 3파일의 문자열에서 u2_/field_/fx_/hud_ 로 시작하는 고정 키를 모아 대조
+  const keySet = new Set(keys);
+  const used = new Set();
+  for (const rel of ['src/battle/BattleScene.js', 'src/battle/BattleHud.js', 'src/battle/fx.js']) {
+    const src = readFileSync(join(ROOT, rel), 'utf8');
+    for (const m of src.matchAll(/['"`]((?:field|fx|hud)_[a-z0-9_]+)['"`]/g)) used.add(m[1]);
+  }
+  const unknown = [...used].filter((k) => !keySet.has(k) && !old.has(k));
+  check(unknown.length === 0, `전투 코드의 2차 텍스처 키가 전부 BATTLE2_ASSETS 에 있음${unknown.length ? ` — 없는 키: ${unknown.join(', ')}` : ''}`);
+  // (통합) 폴더에 있는데 표에 없는 PNG — 이름을 잘못 지어 납품하면 조용히 폴백이 돈다 → 경고
+  const listed = new Set(boot.BATTLE2_ASSETS.map((a) => a[1]));
+  const orphans = [];
+  for (const dir of ['units2', 'field', 'fx', 'hud']) {
+    const d = join(ASSET_DIR, 'battle', dir);
+    if (!existsSync(d)) continue;
+    for (const f of readdirSync(d)) if (f.endsWith('.png') && !listed.has(`battle/${dir}/${f}`)) orphans.push(`${dir}/${f}`);
+  }
+  if (orphans.length) warn(`표(BATTLE2_ASSETS)에 없는 2차 그림 ${orphans.length}개 — 코드가 안 읽는다: ${orphans.join(', ')}`);
+  else ok('2차 그림 폴더에 표 밖 PNG 없음');
+  // (통합) 유닛 그림의 몸 중심 표(BattleScene.U2_ANCHOR)가 표의 모든 유닛(병종·무장)을 덮고 값이 캔버스 안인가, stand↔attack 이 짝으로 있는가
+  if (battle && battle.U2_ANCHOR && battle.U2) {
+    const bases = new Set(keys.filter((k) => k.startsWith('u2_')).map((k) => k.replace(/^u2_/, '').replace(/_(stand|attack)$/, '')));
+    const anchorKey = (b) => (b.startsWith('gen_') ? b : b.replace(/_(g|b)$/, ''));
+    const noAnchor = [...bases].filter((b) => !battle.U2_ANCHOR[anchorKey(b)]);
+    check(noAnchor.length === 0, `U2_ANCHOR 가 유닛 ${bases.size}종을 다 덮음${noAnchor.length ? ` — 없는 것: ${noAnchor.join(', ')}` : ''}`);
+    check(Object.values(battle.U2_ANCHOR).every((a) => Array.isArray(a) && a.length === 2 && a.every((v) => v >= 24 && v <= 104)), 'U2_ANCHOR 값 [stand, attack] 이 128px 캔버스 가운데 쪽(24~104)');
+    check([...bases].every((b) => keySet.has(`u2_${b}_stand`) && keySet.has(`u2_${b}_attack`)), '유닛 그림이 stand·attack 짝으로 표에 있음');
+    check(battle.U2.oy > 0.9 && battle.U2.oy < 1 && battle.U2.general.scale > battle.U2.soldier.scale, 'U2 origin y 0.9~1 · 무장 배율 > 병사 배율');
+  }
 }
 
 section('6) 전투 선택 에셋 (BootScene.BATTLE_ASSETS) — 있으면 크기 검사, 없으면 통과');
@@ -379,5 +455,5 @@ section('6) sim 계약 (BATTLE.md §2.1) — ' + (BATTLE_OPTIONAL.includes('src/
 
 // ─────────────────────────────────────────────────────────────
 
-console.log(`\n${fails === 0 ? 'PASS' : 'FAIL'} — ${passes} ok, ${fails} fail`);
+console.log(`\n${fails === 0 ? 'PASS' : 'FAIL'} — ${passes} ok, ${fails} fail${warns ? `, ${warns} warn` : ''}`);
 process.exit(fails === 0 ? 0 : 1);

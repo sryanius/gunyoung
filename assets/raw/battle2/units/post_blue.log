@@ -1,0 +1,20 @@
+  degreen: 초록 픽셀 11 개를 파랑으로
+inf_b_stand_s1.png bg=(249,0,250) → inf_b_stand.png 배율 0.1444 x=30 y=21 크기 (98, 131) (same=inf_g_stand.json, 가로 배율 0.1450)
+  fillnear <250: 1 개 메움
+  degreen: 초록 픽셀 2 개를 파랑으로
+spear_b_stand_s2.png bg=(243,2,247) → spear_b_stand.png 배율 0.1416 x=1 y=7 크기 (116, 145) (same=spear_g_stand.json, 가로 배율 0.1406)
+  degreen: 초록 픽셀 2 개를 파랑으로
+inf_b_attack_s2.png bg=(240,1,247) → inf_b_attack.png 배율 0.1400 x=11 y=33 크기 (117, 119) (same=inf_g_attack.json, 가로 배율 0.1410)
+  degreen: 초록 픽셀 2684 개를 파랑으로
+spear_b_attack_s2.png bg=(239,1,245) → spear_b_attack.png 배율 0.1402 x=-8 y=31 크기 (136, 121) (same=spear_g_attack.json, 가로 배율 0.1441)
+  fillnear <250: 1 개 메움
+  degreen: 초록 픽셀 18 개를 파랑으로
+bow_b_stand_s1.png bg=(241,0,250) → bow_b_stand.png 배율 0.1450 x=22 y=19 크기 (82, 133) (same=bow_g_stand.json, 가로 배율 0.1441)
+  degreen: 초록 픽셀 693 개를 파랑으로
+bow_b_attack_s1.png bg=(248,0,248) → bow_b_attack.png 배율 0.1834 x=34 y=8 크기 (85, 144) (same=bow_g_attack.json, 가로 배율 0.1832)
+  fillnear <250: 1 개 메움
+  degreen: 초록 픽셀 7418 개를 파랑으로
+cav_b_stand_s4.png bg=(248,0,243) → cav_b_stand.png 배율 0.1800 x=0 y=3 크기 (128, 149) (same=cav_g_stand.json, 가로 배율 0.1803)
+  fillnear <250: 1 개 메움
+  degreen: 초록 픽셀 18 개를 파랑으로
+cav_b_attack_s2.png bg=(243,1,243) → cav_b_attack.png 배율 0.1414 x=12 y=2 크기 (116, 150) (same=cav_g_attack.json, 가로 배율 0.1404)

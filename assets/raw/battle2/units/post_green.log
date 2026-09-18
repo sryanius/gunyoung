@@ -1,0 +1,29 @@
+s3_inf_s27.png bg=(102,197,196) thr=40 → inf_g_stand.png (685, 916)
+s3_spear_s25.png bg=(8,162,183) thr=40 → spear_g_stand.png (764, 950)
+st_gen_guanyu_s25.png bg=(83,185,202) thr=40 → gen_guanyu_stand.png (803, 1070)
+st_gen_dianwei_s26.png bg=(179,233,211) thr=25 → gen_dianwei_stand.png (709, 1104)
+inf_g_stand.png → inf_g_stand.png 배율 0.1433 x=30 y=21 headtop=9 cx=207 foot=916 몸 중심 x=59.7
+spear_g_stand.png → spear_g_stand.png 배율 0.1524 x=1 y=7 headtop=97 cx=414 foot=950 몸 중심 x=64.1
+gen_guanyu_stand.png → gen_guanyu_stand.png 배율 0.1421 x=12 y=0 headtop=70 cx=369 foot=1070 위 넘침: 배율 0.1460→0.1421 (몸 높이 142) 몸 중심 x=64.4
+gen_dianwei_stand.png → gen_dianwei_stand.png 배율 0.1333 x=28 y=5 headtop=8 cx=272 foot=1103 몸 중심 x=64.3
+bow_fix_s1.png bg=(249,0,250) → bow_g_attack.png 배율 0.1839 x=34 y=8 크기 (85, 144) headtop=76 cx=161 foot=783 몸 중심 x=63.5
+  fillnear <250: 1 개 메움
+cav_fix_s1.png bg=(251,0,242) → cav_g_stand.png 배율 0.1831 x=0 y=3 크기 (128, 149) headtop=11 cx=345 foot=816 폭 넘침: 배율 0.1863→0.1831 (몸 높이 147) 몸 중심 x=63.1
+  fillnear <250: 1 개 메움
+zhangfei_fix_s1.png bg=(250,0,243) → gen_zhangfei_stand.png 배율 0.1557 x=10 y=0 크기 (118, 152) headtop=48 cx=280 foot=976 위 넘침: 배율 0.1573→0.1557 (몸 높이 145) 몸 중심 x=53.6
+fx_gen_xiahoudun_s34.png bg=(115,205,178) thr=25 → gen_xiahoudun_stand.png (709, 1078)
+gen_xiahoudun_stand.png 구멍 49 개(1238 px) 메움
+gen_xiahoudun_stand.png → gen_xiahoudun_stand.png 배율 0.1410 x=19 y=0 headtop=66 cx=320 foot=1078 위 넘침: 배율 0.1443→0.1410 (몸 높이 143) 몸 중심 x=64.1
+inf_g_attack_s1.png bg=(251,0,249) → inf_g_attack.png 배율 0.1449 x=11 y=33 크기 (117, 119) 편집 결과 발끝 y=147
+spear_g_attack_s1.png bg=(251,0,247) → spear_g_attack.png 배율 0.1449 x=-8 y=31 크기 (136, 121) 편집 결과 발끝 y=142 ※ 좌우 넘침: x -4→-8 (폭 136) ※※ 폭이 128 을 넘는다 — 왼쪽 8px 잘린다
+  fillnear <250: 1 개 메움
+bow_g_stand_s2.png bg=(243,1,249) → bow_g_stand.png 배율 0.1449 x=22 y=19 크기 (82, 133) 편집 결과 발끝 y=152
+  fillnear <250: 1 개 메움
+cav_g_attack_s1.png bg=(251,0,247) → cav_g_attack.png 배율 0.1449 x=12 y=2 크기 (116, 150) 편집 결과 발끝 y=153
+  fillnear <250: 1 개 메움
+gen_guanyu_attack_s1.png bg=(250,0,249) → gen_guanyu_attack.png 배율 0.1449 x=-4 y=5 크기 (132, 147) 편집 결과 발끝 y=150 ※ 좌우 넘침: x -2→-4 (폭 132) ※※ 폭이 128 을 넘는다 — 왼쪽 4px 잘린다
+  fillnear <250: 2 개 메움
+gen_zhangfei_attack_s1.png bg=(250,1,249) → gen_zhangfei_attack.png 배율 0.1449 x=0 y=10 크기 (128, 142) 편집 결과 발끝 y=148 ※ 좌우 넘침: x 2→0 (폭 128)
+  fillnear <250: 1 개 메움
+gen_dianwei_attack_s1.png bg=(249,1,251) → gen_dianwei_attack.png 배율 0.1449 x=12 y=11 크기 (116, 141) 편집 결과 발끝 y=149
+gen_xiahoudun2_attack_s1.png bg=(250,0,251) → gen_xiahoudun_attack.png 배율 0.1449 x=5 y=12 크기 (123, 140) 편집 결과 발끝 y=149 ※ 좌우 넘침: x 8→5 (폭 123)

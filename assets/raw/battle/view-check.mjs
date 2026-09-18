@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // view-check.mjs — 브라우저 없이 BattleScene·BattleHud·fx 를 굴려 보는 헤드리스 점검 (개발용, 배포물 아님).
 //
-//   node assets/raw/battle/view-check.mjs
+//   node assets/raw/battle/view-check.mjs          1차 그림만 있는 상태(2차 텍스처 없음 → 폴백 경로)
+//   node assets/raw/battle/view-check.mjs --art    2차 그림(BootScene.BATTLE2_ASSETS)이 전부 있는 상태 — 교체·기수·fx 풀·데칼 경로
 //
 // Phaser 를 「무엇을 불러도 체이닝되는 가짜 게임 오브젝트」로 흉내 내고(속성 x/y/alpha… 는 실제 값),
 // 진짜 sim(src/battle/sim.js, 없으면 더미)을 붙여 create → 인트로 → 조이스틱·키보드 → 병법 → 무장기 → 종료 →
@@ -123,7 +124,8 @@ class Tweens {
 /** 씬 하나에 붙는 가짜 Phaser 시스템 */
 function makeSceneEnv(scene, manager, key, data, clock) {
   const W = manager.W;
-  const textures = { exists: (k) => manager.textures.has(k) };
+  // get(): fx.js 가 텍스처 실제 폭을 잰다(「화면 px → 배율」) — 가짜 폭 64
+  const textures = { exists: (k) => manager.textures.has(k), get: () => ({ getSourceImage: () => ({ width: 64, height: 64 }) }) };
   const add = new Proxy({}, {
     get: (_, k) => (...args) => {
       const kind = String(k);
@@ -195,6 +197,20 @@ const manager = {
 };
 manager.tweens = new Tweens(clock);
 
+// --art: 2차 그림이 전부 로드된 것처럼 — 키는 BootScene 표에서 그대로. 늘 만드는 비네트·원근 그라데이션도 넣는다
+const ART = process.argv.includes('--art');
+if (ART) {
+  const boot = await import(pathToFileURL(join(ROOT, 'src/scenes/BootScene.js')).href);
+  // (통합) --drop=<정규식>: 그 키만 빠진 「일부만 납품」 상태 — 기대값 검사(FAIL 줄)는 어긋날 수 있으니 예외 없이 끝까지 도는지만 본다(끝줄 DROP-OK)
+  const dropArg = process.argv.find((a) => a.startsWith('--drop='));
+  const DROP = dropArg ? new RegExp(dropArg.slice(7)) : null;
+  globalThis.__DROP = !!DROP;
+  for (const [key] of boot.BATTLE2_ASSETS) if (!DROP || !DROP.test(key)) manager.textures.add(key);
+  manager.textures.add('battle_vignette');
+  manager.textures.add('battle_shade');
+}
+console.log(ART ? '[2차 그림 있음 --art]' : '[2차 그림 없음 — 폴백 경로]');
+
 const { default: BattleScene } = await import(pathToFileURL(join(ROOT, 'src/battle/BattleScene.js')).href);
 const { default: BattleHud } = await import(pathToFileURL(join(ROOT, 'src/battle/BattleHud.js')).href);
 
@@ -216,6 +232,10 @@ async function run() {
   scene.create();
   check(manager.log.some((l) => l[0] === 'launch' && l[1] === 'BattleHud'), 'create 가 BattleHud 를 launch 한다');
   check(scene.pool.length === 260 && scene.shadowG && scene.fx, '스프라이트 풀 260 + 그림자 Graphics + Fx');
+  check(scene.cameras.main.zoom === 1.15, `카메라 기본 줌 1.15 (지금 ${scene.cameras.main.zoom})`);
+  check(scene.fx.fxPool.length === 60 && scene.fx.decals.length === (ART ? 40 : 0), `fx 풀 60 · 데칼 풀 ${scene.fx.decals.length}${ART ? '' : ' (데칼 텍스처 없음 → 0)'}`);
+  check(scene.props.length === (ART ? 19 : 0), `소품·진영 깃발 ${scene.props.length}개`);
+  check(ART ? (scene.fogBack.length >= 5 && scene.groundImgTop === 360) : (scene.fogBack.length === 0 && scene.groundImgTop === 400), `안개 ${scene.fogBack.length}×2장 · 땅 그림 위 변 y ${scene.groundImgTop}`);
   for (let i = 0; i < 20 && !scene.sim; i++) await new Promise((r) => setTimeout(r, 20));
   check(!!scene.sim, `sim 로드됨 (${existsSync(join(ROOT, 'src/battle/sim.js')) ? 'src/battle/sim.js' : '더미'})`);
   if (!scene.sim) return;
@@ -225,6 +245,19 @@ async function run() {
   check(metas.every((m) => m.skill && m.skill.name && m.skill.shape), `무장기 데이터 해석: ${metas.map((m) => `${m.name}=${m.skill.name}/${m.skill.shape}`).join(' ')}`);
   check(metas[0].key === 'guanyu', `컷인 키 = cutin_${metas[0].key}`);
   check(scene.introUntil > clock.now, '인트로 동안 sim 정지');
+  check(scene.genViews.length === 4 && scene.genViews.every((v) => v.label.text && v.h > 0), `무장 이름표 4 (${scene.genViews.map((v) => v.label.text).join('·')})`);
+  check(scene.flagByUnit.size === (ART ? 12 : 0), `기수 깃발 ${scene.flagByUnit.size}개 (부대당 3 × 4)`);
+  if (ART) {
+    const texOf = (u) => scene.spriteById.get(u.id).texture.key;
+    const gl = scene.sim.generalsOf('left')[0], sr = scene.sim.units.find((u) => u.side === 'right' && u.kind !== 'general');
+    check(texOf(gl) === 'u2_gen_guanyu_stand' && texOf(sr) === `u2_${sr.kind}_b_stand`, `2차 유닛 텍스처: ${texOf(gl)} / ${texOf(sr)}`);
+    const sp = scene.spriteById.get(sr.id);
+    check(sp.originY === 0.95 && sp.baseTint === null, '2차 그림은 origin 0.95 · tint 없음');
+  } else {
+    const sr = scene.sim.units.find((u) => u.side === 'right' && u.kind !== 'general');
+    const sp = scene.spriteById.get(sr.id);
+    check(/^(bunit_|unit_)/.test(sp.texture.key) && sp.baseTint === 0x3b6fd6, `1차 폴백: ${sp.texture.key} + 편 색 tint`);
+  }
 
   section('BattleHud.create');
   const hud = new BattleHud();
@@ -268,12 +301,17 @@ async function run() {
   check(p.x < x1 - 30, `키보드 A → 왼쪽 이동 ${x1.toFixed(0)} → ${p.x.toFixed(0)}`);
   check(p.facing === -1 && scene.spriteById.get(p.id).flipX === true, '왼쪽 보면 flipX');
   const camX = scene.cameras.main.scrollX;
-  check(camX >= 0 && Math.abs(camX - (p.x - 120 - manager.W / 2)) < 400, `카메라가 무장을 따라감 scrollX=${camX.toFixed(0)}`);
+  // 줌 1.15: 보이는 폭 W/1.15, 화면 가운데 = scrollX + W/2 → scrollX 는 −(W − W/1.15)/2 까지 내려간다(전장 왼쪽 끝)
+  const minScroll = manager.W / (2 * 1.15) - manager.W / 2;
+  check(camX >= minScroll - 0.01 && Math.abs(camX - (p.x - 120 - manager.W / 2)) < 400, `카메라가 무장을 따라감 scrollX=${camX.toFixed(0)} (하한 ${minScroll.toFixed(0)})`);
+  check(Math.abs(scene.cameras.main.scrollY - (720 - 720 / 1.15) / 2) < 0.01, `세로는 아래 변에 붙음 scrollY=${scene.cameras.main.scrollY.toFixed(1)}`);
 
   section('병법·무장기');
   scene.input.keyboard.emit('keydown-ONE');
   check(scene.cmd.left === 'charge', '1 키 → 돌격');
   frame(scene, hud);
+  const shouts = manager.objs.filter((o) => o.kind === 'text' && o.text === '돌격!');
+  check(shouts.length === 1, `「돌격!」 붓글씨 한 번(씬 emit + sim 이벤트 중복 제거) — ${shouts.length}개`);
   check(hud.tacticBtns.find((b) => b.cmd === 'charge').held === true, 'HUD 병법 버튼 「돌격」 눌림 유지');
   hud.tacticBtns.find((b) => b.cmd === 'hold').emit('pointerup');
   check(scene.cmd.left === 'hold', 'HUD 버튼 → 대기');
@@ -285,7 +323,22 @@ async function run() {
   scene.input.keyboard.emit('keydown-SPACE');
   frame(scene, hud);
   check(skillMeta && skillMeta.name === p.name, `무장기 발동 → battle:skill(${skillMeta && skillMeta.name})`);
-  check(scene.cameras.main.calls.slice(camCalls0).some((c) => c[0] === 'shake') && scene.cameras.main.calls.some((c) => c[0] === 'flash'), '카메라 shake + flash');
+  check(scene.cameras.main.calls.slice(camCalls0).some((c) => c[0] === 'shake' && c[1] === 350) && scene.cameras.main.calls.some((c) => c[0] === 'flash'), '카메라 shake 0.35초 + flash');
+  // 히트스톱 120ms: sim.time 이 멈췄다 다시 흐른다 / 줌 펀치: 1.25 근처까지 갔다 1.15 로 복귀
+  {
+    const tStop = scene.sim.time;
+    let zMax = scene.cameras.main.zoom;
+    for (let i = 0; i < 6; i++) { frame(scene, hud); zMax = Math.max(zMax, scene.cameras.main.zoom); }   // 100ms
+    check(scene.sim.time === tStop, `히트스톱: 100ms 동안 sim.time 그대로(${Math.round(tStop)})`);
+    for (let i = 0; i < 12; i++) { frame(scene, hud); zMax = Math.max(zMax, scene.cameras.main.zoom); }
+    check(scene.sim.time > tStop, '히트스톱 뒤 sim 진행');
+    check(zMax > 1.22 && zMax <= 1.25, `줌 펀치 최대 ${zMax.toFixed(3)}`);
+    for (let i = 0; i < 30; i++) frame(scene, hud);
+    check(scene.cameras.main.zoom === 1.15, '펀치 뒤 줌 1.15 복귀');
+    if (ART) {
+      check(scene.fx.fxLive.length + scene.fx.fxPool.length === 60, `fx 풀 합 60 (살아 있는 것 ${scene.fx.fxLive.length})`);
+    }
+  }
   const cutinObjs = manager.objs.filter((o) => o.kind === 'image' && o.texture.key === 'cutin_guanyu');
   check(cutinObjs.length === 1 && cutinObjs[0].height === 1216, '컷인 초상 이미지 생성(cutin_guanyu)');
   check(scene.result === null, '아직 결과 없음');
@@ -293,15 +346,40 @@ async function run() {
   section('전투 진행 → 종료 → 결과 패널');
   scene.command('charge');
   let frames = 0;
+  let sawAttackTex = false, maxFx = 0, maxDecal = 0, sawKb = false;
+  // fx 풀 압력: spawn 이 null(풀 빔)을 돌려준 횟수와 평균 점유 — 60fps(16.7ms) 프레임으로 잰다
+  let spawnTry = 0, spawnFail = 0, liveSum = 0;
+  const spawn0 = scene.fx.spawn.bind(scene.fx);
+  scene.fx.spawn = (...a) => { const r = spawn0(...a); spawnTry++; if (!r && manager.textures.has(a[0])) spawnFail++; return r; };
   let endEv = null; scene.events.on('battle:end', (r) => { endEv = r; });
   const t0 = Date.now();
-  while (!scene.ended && frames < 4000) { frame(scene, hud, 50); frames++; }
+  while (!scene.ended && frames < 12000) {
+    frame(scene, hud, 16.7); frames++;
+    maxFx = Math.max(maxFx, scene.fx.fxLive.length);
+    liveSum += scene.fx.fxLive.length;
+    maxDecal = Math.max(maxDecal, scene.fx.decalLive);
+    if (!sawAttackTex || !sawKb) for (const sp of scene.spriteById.values()) {
+      if (/_attack$/.test(sp.texture.key)) sawAttackTex = true;
+      if (sp.kb) sawKb = true;
+    }
+  }
+  if (ART) {
+    check(sawAttackTex, 'attackT 0.15~0.75 구간에 attack 텍스처로 교체됨');
+    check(maxFx > 0 && maxFx <= 60 && maxDecal > 0 && maxDecal <= 40, `fx 동시 최대 ${maxFx}/60 (평균 ${(liveSum / frames).toFixed(1)}) · 데칼 동시 최대 ${maxDecal}/40`);
+    check(spawnFail / Math.max(1, spawnTry) < 0.05, `fx 풀이 비어 건너뛴 이펙트 ${spawnFail}/${spawnTry} (${(100 * spawnFail / Math.max(1, spawnTry)).toFixed(1)}%) < 5%`);
+  } else {
+    check(!sawAttackTex && maxFx === 0 && maxDecal === 0, '2차 텍스처 없음 → 교체·fx 풀·데칼 미사용(1차 경로)');
+  }
+  check(sawKb, '넉백 회전(kb) 이 걸린 스프라이트가 있었다');
   const wall = Date.now() - t0;
   check(scene.ended && scene.result, `전투 종료: ${scene.result && scene.result.winner} (${scene.result && scene.result.reason}) sim ${Math.round(scene.sim.time / 1000)}초, 프레임 ${frames}, 실시간 ${wall}ms`);
   for (let i = 0; i < 40; i++) frame(scene, hud, 50);
   check(endEv && hud.resultOpen, `battle:end → 결과 패널 열림 「${hud.rTitle.text}」 ${hud.rRows.map((r) => r.text).join(' | ')}`);
   check(scene.spriteById.size <= scene.sim.units.filter((u) => u.state !== 'gone').length + 1, `죽은 유닛 스프라이트가 풀로 돌아옴 (활성 ${scene.spriteById.size}, 풀 ${scene.pool.length})`);
   check(scene.fx.slashPool.length + scene.fx.slashes.length === 14 && scene.fx.arrowPool.length === 48 && scene.fx.textPool.length + scene.fx.textLive.length === 30, '이펙트 풀 누수 없음');
+  check(scene.fx.fxPool.length + scene.fx.fxLive.length === 60 && scene.fx.fxLive.every((x) => x.active), `2차 fx 풀 누수 없음 (살아 있는 것 ${scene.fx.fxLive.length})`);
+  const flagsShown = [...scene.flagByUnit.entries()].filter(([id, f]) => f.visible && scene.sim.units[id].state === 'gone').length;
+  check(flagsShown === 0, '사라진 기수의 깃발은 안 보인다');
   check(!scene.joy && !hud.readyTween, '종료 뒤 조이스틱·게이지 빛 없음');
 
   section('재배치(relayout) — HUD 재시작, BattleScene.applyBounds');
@@ -340,6 +418,7 @@ async function run() {
   check(sb2.useSkill('left', pg.id) === true && sb2.drainEvents().some((e) => e.type === 'skill'), '더미 useSkill → skill 이벤트');
   check(typeof g0.gauge === 'number' && g0.skill, '더미 무장 gauge·skill');
 
+  if (globalThis.__DROP) { console.log(`\nDROP-OK — 예외 없이 끝까지 (${passes} ok, 기대값 어긋남 ${fails})`); process.exit(0); }
   console.log(`\n${fails === 0 ? 'PASS' : 'FAIL'} — ${passes} ok, ${fails} fail`);
   process.exit(fails === 0 ? 0 : 1);
 }

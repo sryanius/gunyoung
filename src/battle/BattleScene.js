@@ -10,6 +10,14 @@
 // 그리기 규칙(§4.1): 유닛 = Sprite 하나(풀), 깊이 = y, 그림자는 Graphics 하나에 전부, 애니는 프레임이 아니라 코드 연출.
 // 성능: sim.step 은 delta 를 ≤50ms 로 쪼개 프레임당 최대 4번. 스프라이트 갱신은 for 한 번. 매 프레임 drainEvents.
 //
+// 2차(docs/BATTLE_ART.md §5) — 그림을 갈아 끼우고 연출을 겹친다. 새 그림(BootScene.BATTLE2_ASSETS)은 전부 선택:
+//   textures.exists 로 보고 있으면 쓰고, 없으면 1차 방식(units/<kind>.png + tint, 코드 실루엣, Graphics)으로 돈다.
+//   렌더 층(LAYER): sky 0 → far 1(패럴랙스 0.2) → mid 2(0.5) → ground 3 + 원근 그라데이션 3.5 → 뒤 안개 4 → 데칼 5
+//     → 소품·진영 깃발 6(띠 안·앞쪽 소품은 y 깊이) → 그림자·무장 링 7 → 유닛(y 400~690) · 기수 깃발(y−0.5) → 이름표 850
+//     → fx ADD 900 → 앞 안개 950 → 비네트(HUD 씬 맨 아래 — 줌·흔들림에 안 끌려가게 거기 둔다) → HUD.
+//   카메라 줌 1.15(무장기 때 1.25 펀치). ※ 줌은 scrollFactor 0 인 것도 키운다 → 조이스틱 그림은 역변환해 그린다(drawJoy).
+//   무장기: 히트스톱 120ms(sim.step 을 건너뛴다) + 흔들림 0.35초 + 흰 flash + 줌 펀치 + 모양별 이펙트(fx.skillCone/skillRing/impact).
+//
 // ※ 한글 문구를 새로 넣으면 factions.js 의 KOREAN_SAMPLE 에도 넣어라(tools/smoke.mjs 가 대조한다).
 
 import { play as sfx } from '../sfx.js';
@@ -24,12 +32,77 @@ const GENERAL_COLOR = { left: 0x8fe8a0, right: 0x9cc0ff };
 
 const CAM_LERP = 0.08;      // 프레임(16.7ms)당 따라가는 비율
 const CAM_LEAD = 120;       // 무장 앞쪽으로 내다보는 거리
+const CAM_ZOOM = 1.15;      // 기본 줌 — 유닛이 커 보이게 (BATTLE_ART §5). 보이는 세로는 720/1.15 = 626 → 아래 변(y 720)에 붙인다
+const CAM_PUNCH = 1.25;     // 무장기 줌 펀치
+const PUNCH_IN = 200;       // 0.2초에 1.25 까지
+const PUNCH_OUT = 320;      // 그 뒤 복귀
+const HITSTOP_MS = 120;     // 무장기 히트스톱 — 이 동안 sim.step 을 안 부른다
 const MAX_STEP = 50;        // sim.step 한 번의 최대 ms
 const MAX_STEPS = 4;        // 프레임당 최대 step 횟수 (탭 복귀 폭주 방지)
 const JOY_R = 70;           // 가상 조이스틱 반지름
 const JOY_DEAD = 12;        // 데드존
 const INTRO_MS = 1200;      // 「전투 개시」 동안 sim 정지
-const HUD_TOP = 132;        // 이 위쪽 터치는 조이스틱으로 안 잡는다(HUD 영역 — BattleHud 무장 행 둘째 줄 아래 끝 128)
+const HUD_TOP = 158;        // 이 위쪽 터치는 조이스틱으로 안 잡는다(HUD 영역 — BattleHud 초상 테두리 아래 끝 154. 2차 HUD 에서 132→158)
+
+/** 렌더 층(깊이) — BATTLE_ART.md §5. 유닛은 y(400~690), fx 쪽은 fx.js FX_DEPTH(데칼 5·범위 7.8·fx 900) */
+export const LAYER = { sky: 0, far: 1, haze: 1.5, mid: 2, ground: 3, shade: 3.5, fogBack: 4, prop: 6, shadow: 7, glow: 7.5, name: 850, fogFront: 950 };
+
+/**
+ * 2차 유닛 그림(units2, 128×160, 발끝 y≈152) 배율·origin. 몸 높이 병사 ~130 · 기병 ~150 · 무장 ~145px 기준.
+ *   0.36 → 병사 47px(줌 1.15 → 화면 54px, 폰 0.54배 → 29px), 기병 54px, 무장 0.5 → 72px.
+ *   h = 표시 몸 높이(이름표·기수 깃발 위치), sw/sh = 그림자 타원. 납품 그림 실측(통합): 24장 전부 128×160, 발끝(알파 bbox 아래) y152 →
+ *   oy 0.95, stand 몸 높이 병사 129~131 · 기병 147 · 무장 142~146.
+ */
+export const U2 = {
+  oy: 0.95,
+  soldier: { scale: 0.36, h: 47, sw: 24, sh: 8 },
+  cav:     { scale: 0.36, h: 54, sw: 34, sh: 9 },
+  // (통합) 납품 그림 실측: 무장 stand 몸 높이 142~146px. 0.46(67px)은 미리보기(assets/raw/battle2/preview.png)에서 난전의 불꽃·병사에
+  //   묻혔다 → 0.5(72px, 병사의 1.53배). 병사 0.36 은 진형 간격 20×22 에 이미 반쯤 겹쳐(밀집 방진으로 읽힌다) 더 키우지 않는다
+  general: { scale: 0.5, h: 72, sw: 46, sh: 14 },
+};
+/**
+ * (통합) 2차 그림의 「몸 중심 x」(128px 캔버스 기준) [stand, attack] — 이 열이 유닛 좌표(u.x = 그림자·발밑 링) 위에 오게 놓는다.
+ *   납품 그림은 attack 이 앞발을 stand 자리에 둔 채 뒷발을 뒤로 뻗는 자세라 몸통이 8~15px 뒤에 그려져 있다(실측: 아래 7행 발 덩어리 +
+ *   y60~125 몸통 무게중심, assets/raw/battle2/_integ_feet.py). origin 0.5 로만 두면 교체 순간 몸이 뒤로 3~7px 튀고, 무장은
+ *   stand 도 가운데가 아니라(장비 57 · 관우 72) 발밑 링이 몸에서 비껴 보인다. 표에 없는 키(1차 그림)는 64(가운데).
+ */
+export const U2_ANCHOR = {
+  inf: [62, 50], spear: [62, 47], bow: [61, 64], cav: [64, 64],
+  gen_guanyu: [72, 66], gen_zhangfei: [57, 51], gen_xiahoudun: [66, 52], gen_dianwei: [75, 60],   // 전위 stand 는 뒤로 든 도끼 탓에 무게중심(71)보다 몸이 앞(75) — 기준선을 그려 눈으로 맞춤(_integ_anchor_sheet.png)
+};
+/** 1차 그림·코드 실루엣의 몸 높이·그림자 (기존 값 그대로) */
+const U1 = { soldier: { h: 37, sw: 18, sh: 6 }, general: { h: 52, sw: 36, sh: 11 } };
+
+/**
+ * 2차 땅(field_ground 2048×360)은 아래 변을 y 720 에 붙인다 → 그림 위 변 y 360. 납품 그림은 위 40px 이 알파 페이드(0→1)라
+ *   불투명한 땅은 1차와 같이 y 400 부터다 — 지평선(far·하늘색 띠)은 두 경우 다 FIELD.top(400) 기준으로 둔다.
+ */
+const GROUND2_H = 360;
+/** 중경(field_mid 2048×260, 아래 8px 도 알파 페이드) 밑변 y — 2차 땅이면 페이드 구간 안(392), 1차 땅(위 변이 직선)이면 땅 밑으로 20 숨긴다. 패럴랙스 0.5 */
+const MID_BASE = { ground2: FIELD.top - 8, ground1: FIELD.top + 20 };
+/** 안개(field_fog 1024×160 — 납품 그림은 평균 알파 0.13·최대 0.74 로 옅다) 층 알파와 y. 뒤 = 지평선, 앞 = y 650 근처 */
+const FOG = { backY: FIELD.top - 10, backAlpha: 0.9, frontY: 650, frontAlpha: 0.45, frontScaleY: 1.5 };
+/** 기수: 부대(무장)마다 병사 순번 2·26·50 번째(진형 앞·가운데·뒤 겹의 가운데 줄)가 깃발을 든다 */
+const BEARER_SLOTS = [2, 26, 50];
+const FLAG_SCALE = 0.62;    // 48×72 → 30×45px (머리 위로 솟는다)
+
+/**
+ * 소품 배치 [키, x, 바닥 y, 배율, flipX]. sim 은 소품을 모른다(유닛이 그냥 지나간다) → 막사·목책·고목은 땅 띠 위쪽 가장자리(y≤415,
+ *   모든 유닛 뒤)에만, 띠 안에는 가는 진영 깃발만, 띠 아래(y≥700, 모든 유닛 앞)엔 낮은 바위만 둔다.
+ * (통합, 미리보기 preview_camp.png 로 고침) 진영 깃발: 0.8·0.9배(화면 177·199px)는 병사(54px)의 3.5배라 막사보다 컸다 → 0.66·0.72.
+ *   (410,668)·(250,446)은 대기 진형(x 230~560, y 445~686) 한가운데·첫 줄 위에 꽂혀 보였다 → 뒤 깃발은 띠 위 가장자리(y 418, 층 6),
+ *   앞 깃발은 후퇴선(x 200 / 3000) 바깥. 앞쪽 바위 x 1390 은 격돌 지점(1400~1800) 맨 아랫줄을 가려 1010 으로.
+ */
+const PROPS = [
+  ['field_tent', 150, 410, 0.9, false], ['field_tent', 340, 404, 0.72, true], ['field_palisade', 500, 414, 0.8, false],
+  ['field_palisade', 40, 416, 0.8, true], ['field_banner_g', 250, 418, 0.66, false], ['field_banner_g', 96, 672, 0.72, false],
+  ['field_tent', 3050, 410, 0.9, true], ['field_tent', 2860, 404, 0.72, false], ['field_palisade', 2700, 414, 0.8, true],
+  ['field_palisade', 3160, 416, 0.8, false], ['field_banner_b', 2950, 418, 0.66, true], ['field_banner_b', 3104, 672, 0.72, true],
+  ['field_tree_dead', 1180, 408, 0.85, false], ['field_tree_dead', 2080, 412, 0.75, true],
+  ['field_rock1', 1580, 414, 0.5, false], ['field_rock2', 880, 410, 0.45, false], ['field_rock2', 2380, 412, 0.4, true],
+  ['field_rock2', 1010, 726, 0.4, false], ['field_rock1', 2240, 728, 0.42, true],   // 앞쪽 바위는 낮게·작게(맨 아랫줄 유닛을 덜 가린다)
+];
 
 /** 논리 폭 — main.js 가 창 비율로 정한다. create()·applyBounds() 에서 실제 값으로 */
 let W = 1280;
@@ -161,8 +234,17 @@ export default class BattleScene extends Phaser.Scene {
     this.freezeAt = 0;
     this.lastHitSfx = 0;
     this.joy = null;
+    // 2차 연출 상태 — 씬 재시작(「다시」) 때도 create 가 다시 돌므로 여기서 초기화한다
+    this.animT = 0;              // 연출용 시계(ms) — 히트스톱 동안 멈춘다(bob·깃발 펄럭임)
+    this.hitStopUntil = 0;
+    this.punchAt = -1e9;         // 줌 펀치 시작 시각
+    this.dash = null;            // 맹공 돌진 궤적 { unit, until, next }
+    this.fogOff = 0;
+    this.flagByUnit = new Map(); // 기수 unit.id → 깃발 Sprite
+    this.genViews = [];          // 무장 이름표·발밑 링 { unit, label, color, h }
 
     this.buildBackground();
+    this.buildProps();
     this.buildUnits();
     this.fx = new Fx(this);
     this.setupCamera();
@@ -240,11 +322,14 @@ export default class BattleScene extends Phaser.Scene {
     this.total.left = this.sim.countAlive('left');
     this.total.right = this.sim.countAlive('right');
 
+    this.buildBearers();
+    this.buildGeneralViews();
+
     // 카메라를 바로 무장 위에 두고 첫 프레임을 그려 둔다(인트로 뒤에 튀지 않게)
     if (this.playerUnit) {
-      this.cameras.main.scrollX = Phaser.Math.Clamp(this.playerUnit.x + CAM_LEAD - W / 2, 0, FIELD.w - W);
+      this.cameras.main.scrollX = this.scrollXFor(this.playerUnit.x + CAM_LEAD, this.cameras.main.zoom || 1);
     }
-    this.syncSprites(this.time.now);
+    this.syncSprites(this.time.now, 0);
     this.introUntil = this.time.now + INTRO_MS;
     this.events.emit('battle:ready');
   }
@@ -256,58 +341,136 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 배경 3겹 패럴랙스 — sky(0.15) / far(0.35) / ground(1). 텍스처는 BootScene 이 폴백까지 만든다.
+  // 배경 — BATTLE_ART.md §5 층: sky(0, ≤0.1) / far(1, 0.2) / mid(2, 0.5) / ground(3, 1.0) + 원근 그라데이션(3.5) / 뒤 안개(4)
+  //   … 유닛 … / 앞 안개(950). 텍스처는 BootScene 이 폴백까지 만든다(1차 sky·far·ground, 2차 안개·그라데이션).
   // 창 비율이 바뀌면(main.js relayout → applyBounds) 다시 만든다.
+  //   패럴랙스 계수·타일 수는 줌 1 기준으로 넉넉히 잡는다 — 줌 ≥ 1 이면 보이는 범위가 그 안쪽이다.
   // ─────────────────────────────────────────────────────────────
 
   buildBackground() {
     if (this.bgObjs) for (const o of this.bgObjs) o.destroy();
     this.bgObjs = [];
+    this.fogBack = [];
+    this.fogFront = [];
+    const has = (k) => this.textures.exists(k);
     const R = Math.max(1, FIELD.w - W);   // 카메라 스크롤 범위
+    // 지평선(불투명한 땅이 시작하는 y) — 1차·2차 땅 모두 400. 2차 땅 그림은 y 360 부터 깔리지만 위 40px 은 알파 페이드다
+    const ground2 = has('field_ground');
+    const gTop = FIELD.top;
+    const gImgTop = ground2 ? FIELD.h - GROUND2_H : FIELD.top;
+    this.groundImgTop = gImgTop;
 
     // 하늘: 2048×720 한 장. 화면보다 넓게 늘리고, 끝까지 스크롤해도 오른쪽이 비지 않는 배율만 준다
-    if (this.textures.exists('battle_sky')) {
+    if (has('battle_sky')) {
       const k = Math.max(1, (W * 1.05) / 2048);
-      const sf = Math.min(0.15, (2048 * k - W) / R);
-      this.bgObjs.push(this.add.image(0, 0, 'battle_sky').setOrigin(0).setScale(k, 1).setScrollFactor(sf, 1).setDepth(-30));
+      const sf = Math.min(0.1, (2048 * k - W) / R);
+      this.bgObjs.push(this.add.image(0, 0, 'battle_sky').setOrigin(0).setScale(k, 1).setScrollFactor(sf, 1).setDepth(LAYER.sky));
     } else {
       // 최후 폴백 — 단색 하늘
-      this.bgObjs.push(this.add.rectangle(0, 0, W, FIELD.h, 0x7c8ba3).setOrigin(0).setScrollFactor(0).setDepth(-30));
+      this.bgObjs.push(this.add.rectangle(0, 0, W, FIELD.h, 0x7c8ba3).setOrigin(0).setScrollFactor(0).setDepth(LAYER.sky));
     }
 
-    // 먼 산: 2048×360 띠를 필요한 만큼 이어 붙인다(밑변 y 430 — 아래 30px 은 땅 밑에 숨는다). 스크롤 0.35
-    const sfFar = 0.35;
-    if (this.textures.exists('battle_far')) {
-      const need = W + R * sfFar + 64;
-      const n = Math.ceil(need / 2048);
+    // 먼 산: 2048×360 띠를 필요한 만큼 이어 붙인다(밑변은 땅 위 변 + 30 — 아래 30px 은 땅 밑에 숨는다). 스크롤 0.2 (1차 0.35)
+    const sfFar = 0.2;
+    if (has('battle_far')) {
+      const n = Math.ceil((W + R * sfFar + 64) / 2048);
       for (let i = 0; i < n; i++) {
-        this.bgObjs.push(this.add.image(i * 2048, 430, 'battle_far').setOrigin(0, 1).setScrollFactor(sfFar, 1).setDepth(-20));
+        this.bgObjs.push(this.add.image(i * 2048, gTop + 30, 'battle_far').setOrigin(0, 1).setScrollFactor(sfFar, 1).setDepth(LAYER.far));
       }
-      // 안개 띠 — far.png 아래변은 평균 알파 0.11 이지만 봉우리 밑동 100여 열이 알파 1 이라 땅 경계(y 400)에서 산 밑이
-      //   직선으로 잘려 보인다(통합 검수, 실측 row 330). 하늘색(sky.png y 380~420 평균 (237,225,208))으로 y 372→400 그라데이션.
+      // 안개 띠 — far.png 아래변은 평균 알파 0.11 이지만 봉우리 밑동 100여 열이 알파 1 이라 땅 경계에서 산 밑이
+      //   직선으로 잘려 보인다(통합 검수, 실측 row 330). 하늘색(sky.png y 380~420 평균 (237,225,208))으로 땅 위 변 −28 → 위 변 그라데이션.
       //   fillGradientStyle 은 WebGL 전용 — Canvas 는 단색 띠가 되므로 알파를 낮게 둔다.
-      const haze = this.add.graphics().setScrollFactor(sfFar, 1).setDepth(-15);
+      const haze = this.add.graphics().setScrollFactor(sfFar, 1).setDepth(LAYER.haze);
       if (this.isWebGL) {
         haze.fillGradientStyle(0xede1d0, 0xede1d0, 0xede1d0, 0xede1d0, 0, 0, 0.9, 0.9);
-        haze.fillRect(0, 372, n * 2048, 28);
+        haze.fillRect(0, gTop - 28, n * 2048, 28);
       } else {
-        haze.fillStyle(0xede1d0, 0.35).fillRect(0, 386, n * 2048, 14);
+        haze.fillStyle(0xede1d0, 0.35).fillRect(0, gTop - 14, n * 2048, 14);
       }
       this.bgObjs.push(haze);
     } else {
-      const g = this.add.graphics().setScrollFactor(sfFar, 1).setDepth(-20);
+      const g = this.add.graphics().setScrollFactor(sfFar, 1).setDepth(LAYER.far);
       g.fillStyle(0x55627a, 0.8);
-      for (let x = 0; x < 4200; x += 300) g.fillTriangle(x, 430, x + 150, 300, x + 300, 430);
+      for (let x = 0; x < 4200; x += 300) g.fillTriangle(x, gTop + 30, x + 150, gTop - 100, x + 300, gTop + 30);
       this.bgObjs.push(g);
     }
 
-    // 땅: 1024×320 타일 4장 (0~4096 ≥ 3200), y 400~720
-    if (this.textures.exists('battle_ground')) {
+    // 중경(2차): 2048×260 나무·언덕·안개 띠, 위 알파 페이드. 밑변은 MID_BASE — 땅(층 3)의 페이드가 덮고 뒤 안개(층 4)가 경계를 흐린다
+    if (has('field_mid')) {
+      const sfMid = 0.5;
+      const n = Math.ceil((W + R * sfMid + 64) / 2048);
+      const my = ground2 ? MID_BASE.ground2 : MID_BASE.ground1;
+      for (let i = 0; i < n; i++) {
+        this.bgObjs.push(this.add.image(i * 2048, my, 'field_mid').setOrigin(0, 1).setScrollFactor(sfMid, 1).setDepth(LAYER.mid));
+      }
+    }
+
+    // 땅: 2차 2048×360 두 장(아래 변 = y 720) / 1차 1024×320 타일 4장(y 400~720). 전장 3200 을 덮는다
+    if (ground2) {
+      for (let i = 0; i < 2; i++) this.bgObjs.push(this.add.image(i * 2048, gImgTop, 'field_ground').setOrigin(0).setDepth(LAYER.ground));
+    } else if (has('battle_ground')) {
       for (let i = 0; i < 4; i++) {
-        this.bgObjs.push(this.add.image(i * 1024, FIELD.top, 'battle_ground').setOrigin(0).setDepth(-10));
+        this.bgObjs.push(this.add.image(i * 1024, FIELD.top, 'battle_ground').setOrigin(0).setDepth(LAYER.ground));
       }
     } else {
-      this.bgObjs.push(this.add.rectangle(0, FIELD.top, FIELD.w + 200, FIELD.h - FIELD.top, 0x9a8258).setOrigin(0).setDepth(-10));
+      this.bgObjs.push(this.add.rectangle(0, FIELD.top, FIELD.w + 200, FIELD.h - FIELD.top, 0x9a8258).setOrigin(0).setDepth(LAYER.ground));
+    }
+
+    // 땅 원근: 위(먼 곳) 어둡게 알파 0.35 → 아래 0. BootScene 의 4×64 그라데이션 텍스처를 늘린다(없으면 WebGL Graphics)
+    //   2차 땅은 페이드 구간 중간(y 380)부터 — 그 위는 땅 알파가 옅어 그라데이션만 떠 보인다
+    const shTop = ground2 ? gTop - 20 : gTop;
+    const gh = FIELD.h - shTop;
+    if (has('battle_shade')) {
+      this.bgObjs.push(this.add.image(0, shTop, 'battle_shade').setOrigin(0).setDisplaySize(FIELD.w, gh).setDepth(LAYER.shade));
+    } else if (this.isWebGL) {
+      const sh = this.add.graphics().setDepth(LAYER.shade);
+      sh.fillGradientStyle(0x0e0a18, 0x0e0a18, 0x0e0a18, 0x0e0a18, 0.35, 0.35, 0, 0);
+      sh.fillRect(0, shTop, FIELD.w, gh * 0.8);
+      this.bgObjs.push(sh);
+    }
+
+    // 안개 두 겹: 뒤(층 4)는 지평선에 — 땅 위 변의 직선을 흐린다, 앞(층 950)은 y 650 근처에 옅게. updateFog 가 천천히 흘린다
+    if (has('field_fog')) {
+      const n = Math.ceil(FIELD.w / 1024) + 2;       // 한 장 더: 흘러도 왼쪽이 비지 않게 −1024 부터 깐다
+      for (let i = 0; i < n; i++) {
+        const b = this.add.image((i - 1) * 1024, FOG.backY, 'field_fog').setOrigin(0, 0.5).setAlpha(FOG.backAlpha).setDepth(LAYER.fogBack);
+        const f = this.add.image((i - 1) * 1024, FOG.frontY, 'field_fog').setOrigin(0, 0.5).setScale(1, FOG.frontScaleY).setAlpha(FOG.frontAlpha).setDepth(LAYER.fogFront);
+        b.baseX = f.baseX = (i - 1) * 1024;
+        this.fogBack.push(b);
+        this.fogFront.push(f);
+        this.bgObjs.push(b, f);
+      }
+    }
+  }
+
+  /** 안개를 천천히 흘린다 — 뒤는 오른쪽으로 6px/s, 앞은 왼쪽으로 11px/s. 1024 주기라 baseX 에서 나머지만 더한다 */
+  updateFog(delta) {
+    if (!this.fogBack.length) return;
+    // (통합) 앞 안개는 ×1.8 로 흐른다 → fogOff 를 1024 로 감으면 감기는 순간 b 가 819→0 으로 튄다(170초마다, 검수). 공통 주기 5120(1.8 = 9/5)
+    this.fogOff = (this.fogOff + delta * 0.006) % 5120;
+    const a = this.fogOff % 1024, b = (this.fogOff * 1.8) % 1024;
+    for (let i = 0; i < this.fogBack.length; i++) {
+      this.fogBack[i].x = this.fogBack[i].baseX + a;
+      this.fogFront[i].x = this.fogFront[i].baseX + 1024 - b;
+    }
+  }
+
+  /**
+   * 소품·진영 깃발(2차, 있는 것만). 한 번만 만든다 — 폭과 무관.
+   * 깊이: 땅 띠 위쪽 가장자리(y ≤ top+20)는 층 6(모든 유닛 뒤) 안에서 y 순, 그 아래는 y 그대로(유닛과 같이 정렬).
+   */
+  buildProps() {
+    this.props = [];
+    for (let i = 0; i < PROPS.length; i++) {
+      const [key, x, y, scale, flip] = PROPS[i];
+      if (!this.textures.exists(key)) continue;
+      // origin: 진영 깃발은 장대 밑동(통합 실측: 장대 x 9~12/64 → 0.17, 밑동 y 186/192 → 0.97) / 소품은 바닥 그림자만큼 위
+      //   (통합 실측 — 불투명 바닥선/높이: 막사 150/160 · 목책 93/99 · 고목 238/254 · 바위 150/160·160/171 = 전부 0.936~0.939 → 0.94).
+      //   뒤집기는 flipX 가 아니라 음수 scaleX — flipX 는 그림 상자 안에서만 뒤집어 장대가 origin 에서 떨어진다
+      const banner = key === 'field_banner_g' || key === 'field_banner_b';
+      const o = this.add.image(x, y, key).setOrigin(banner ? 0.17 : 0.5, banner ? 0.97 : 0.94).setScale(flip ? -scale : scale, scale)
+        .setDepth(y <= FIELD.top + 20 ? LAYER.prop + y * 0.001 : y);
+      this.props.push(o);
     }
   }
 
@@ -329,12 +492,12 @@ export default class BattleScene extends Phaser.Scene {
     this.spriteById = new Map();
     this.texCache = new Map();
     for (let i = 0; i < 260; i++) this.pool.push(this.makeUnitSprite());
-    // 그림자 — Graphics 하나에 매 프레임 전부 다시 그린다 (§4.1)
-    this.shadowG = this.add.graphics().setDepth(FIELD.top - 1);
+    // 그림자 — Graphics 하나에 매 프레임 전부 다시 그린다 (§4.1). 무장 발밑 편 색 링도 여기에 같이 그린다(스프라이트 안 늘린다)
+    this.shadowG = this.add.graphics().setDepth(LAYER.shadow);
     // 조종 무장 발밑 빛 무리
     this.playerGlow = this.textures.exists('glow')
       ? this.add.image(0, 0, 'glow').setTint(0xa8ffb8).setBlendMode(Phaser.BlendModes.ADD)
-        .setScale(0.55, 0.28).setAlpha(0.5).setDepth(FIELD.top - 0.5).setVisible(false)
+        .setScale(0.55, 0.28).setAlpha(0.5).setDepth(LAYER.glow).setVisible(false)
       : null;
   }
 
@@ -343,24 +506,40 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   /**
-   * 병종·편 → 텍스처 키·배율·origin. 일러스트(bunit_*)가 있으면 0.3배(무장 0.42), 없으면 코드 생성 실루엣.
-   * 실제 납품 96×128 일러스트(assets/battle/NOTES.md 실측, 통합에서 맞춤): 발밑이 y125(아래 변 −2px) → origin (0.5, 0.98).
+   * 병종·편(무장은 무장 key) → 그림 기록 { key(서 있는 그림), atk(공격 그림|null), scale, oy, tint(null = 그림에 편 색이 들어 있음), h, sw, sh }.
+   * 2차(BATTLE_ART §1): u2_<kind>_<g|b>_stand/attack · u2_gen_<key>_stand/attack (128×160, origin 0.5·0.95) — 편 색이 그림에 있어 tint 안 함.
+   *   stand 가 없으면 그 병종·편만 1차로 폴백, attack 만 없으면 교체 없이 stand 한 장(코드 찌르기 연출은 그대로).
+   * 1차: 일러스트(bunit_*)가 있으면 0.3배(무장 0.42), 없으면 코드 생성 실루엣. 편 색은 tint.
+   *   실제 납품 96×128 일러스트(assets/battle/NOTES.md 실측, 통합에서 맞춤): 발밑이 y125(아래 변 −2px) → origin (0.5, 0.98).
    *   알파 폭×높이 inf 66×124 · spear 38×124 · bow 81×124 · cav 92×96 · general_left 86×124 · general_right 61×124.
    *   0.3배면 병사 높이 37px(코드 실루엣 34 와 비슷), 기병만 말이 넓어 96 높이라 ×1.15(→33px) 로 키운다. 무장 0.42 → 52px.
    * Canvas 렌더러는 setTint 를 무시하므로(Phaser: tint 는 WebGL 전용) 편 색을 입힌 캔버스 텍스처를 따로 만든다.
    */
   texFor(u) {
-    const k = `${u.kind}:${u.side}`;
+    const isGen = u.kind === 'general';
+    const gkey = isGen ? (u.key != null ? u.key : (this.genMeta.get(u.id) || {}).key) : null;
+    const k = isGen ? `general:${u.side}:${gkey}` : `${u.kind}:${u.side}`;
     let t = this.texCache.get(k);
     if (t) return t;
-    const isGen = u.kind === 'general';
-    const ill = isGen ? `bunit_general_${u.side}` : `bunit_${u.kind}`;
-    if (this.textures.exists(ill)) t = { key: ill, scale: isGen ? 0.42 : u.kind === 'cav' ? 0.3 * 1.15 : 0.3, oy: 0.98 };
-    else {
-      const code = isGen ? 'unit_general' : `unit_${u.kind}`;
-      t = { key: this.textures.exists(code) ? code : 'unit_inf', scale: 1, oy: 1 };
+    const has = (key) => this.textures.exists(key);
+    const base2 = isGen ? `u2_gen_${gkey}` : `u2_${u.kind}_${u.side === 'left' ? 'g' : 'b'}`;
+    if (has(`${base2}_stand`)) {
+      const m = isGen ? U2.general : u.kind === 'cav' ? U2.cav : U2.soldier;
+      t = { key: `${base2}_stand`, atk: has(`${base2}_attack`) ? `${base2}_attack` : null, scale: m.scale, oy: U2.oy, tint: null, h: m.h, sw: m.sw, sh: m.sh };
+      // (통합) 몸 중심 열을 u.x 위로 — 오른쪽 보기 기준 화면 px. syncSprites 가 보는 방향(f)을 곱해 뺀다(flipX 는 상자 안에서 뒤집힌다)
+      const an = U2_ANCHOR[isGen ? `gen_${gkey}` : u.kind];
+      if (an) { t.ax = (an[0] - 64) * m.scale; t.axAtk = (an[1] - 64) * m.scale; }
+    } else {
+      const m = isGen ? U1.general : U1.soldier;
+      const tint = isGen ? GENERAL_COLOR[u.side] : SIDE_COLOR[u.side];
+      const ill = isGen ? `bunit_general_${u.side}` : `bunit_${u.kind}`;
+      if (has(ill)) t = { key: ill, atk: null, scale: isGen ? 0.42 : u.kind === 'cav' ? 0.3 * 1.15 : 0.3, oy: 0.98, tint, h: m.h, sw: m.sw, sh: m.sh };
+      else {
+        const code = isGen ? 'unit_general' : `unit_${u.kind}`;
+        t = { key: has(code) ? code : 'unit_inf', atk: null, scale: 1, oy: 1, tint, h: isGen ? 60 : 34, sw: m.sw, sh: m.sh };
+      }
+      if (!this.isWebGL) t.key = this.tintedTexture(t.key, tint);
     }
-    if (!this.isWebGL) t.key = this.tintedTexture(t.key, isGen ? GENERAL_COLOR[u.side] : SIDE_COLOR[u.side]);
     this.texCache.set(k, t);
     return t;
   }
@@ -384,19 +563,28 @@ export default class BattleScene extends Phaser.Scene {
     return tk;
   }
 
+  /** 피격 플래시가 끝나면 원래 색으로 — 1차는 편 색 tint, 2차 그림은 tint 없음 */
+  restoreTint(s) {
+    if (s.baseTint != null) s.setTint(s.baseTint);
+    else s.clearTint();
+  }
+
   acquire(u) {
     const s = this.pool.pop() || this.makeUnitSprite();
     const t = this.texFor(u);
-    const isGen = u.kind === 'general';
     s.setTexture(t.key).setScale(t.scale).setOrigin(0.5, t.oy)
       .setAlpha(1).setAngle(0).setActive(true).setVisible(true);
-    s.baseTint = isGen ? GENERAL_COLOR[u.side] : SIDE_COLOR[u.side];
-    s.setTint(s.baseTint);
+    s.tex = t;
+    s.curKey = t.key;             // 지금 끼워 둔 텍스처(stand/attack 교체 — 바뀔 때만 setTexture)
+    s.baseTint = t.tint;
+    this.restoreTint(s);
     s.uid = u.id;
     s.dying = false;
     s.flashing = false;
     s.flashUntil = 0;
     s.kb = 0;
+    s.flag = this.flagByUnit.get(u.id) || null;   // 기수면 깃발 Sprite
+    if (s.flag) s.flag.setVisible(true).setAlpha(1).setAngle(0);
     this.spriteById.set(u.id, s);
     return s;
   }
@@ -405,16 +593,23 @@ export default class BattleScene extends Phaser.Scene {
     this.tweens.killTweensOf(s);
     s.setActive(false).setVisible(false).setAngle(0).setAlpha(1);
     s.dying = false;
+    if (s.flag) {
+      this.tweens.killTweensOf(s.flag);
+      s.flag.setVisible(false);
+      s.flag = null;
+    }
     this.spriteById.delete(s.uid);
     s.uid = -1;
     this.pool.push(s);
   }
 
-  /** 죽음 — 발을 축으로 뒤로 넘어지며(90°) 알파 0, 1.2초 뒤 풀로 */
+  /** 죽음 — 발을 축으로 뒤로 넘어지며(90°) 알파 0, 1.2초 뒤 풀로. 데칼·먼지는 'death' 이벤트 쪽(handleEvents) */
   startDeath(s, u) {
     s.dying = true;
-    s.setTint(s.baseTint);
+    this.restoreTint(s);
     s.flashing = false;
+    if (s.curKey !== s.tex.key) { s.setTexture(s.tex.key); s.curKey = s.tex.key; }   // 공격 자세로 죽지 않게
+    if (s.flag) this.tweens.add({ targets: s.flag, alpha: 0, angle: -70 * (u.facing || 1), duration: 320 });
     this.tweens.add({ targets: s, angle: -90 * (u.facing || 1), duration: 260, ease: 'Quad.easeIn' });
     this.tweens.add({
       targets: s, alpha: 0, duration: 650, delay: 550,
@@ -423,15 +618,58 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   /**
-   * 유닛 → 스프라이트 위치·연출. for 한 번 (§4.1).
-   *   이동: 상하 bob ±2px 6Hz + 살짝 기울기 / 공격: attackT 로 전방 찌르기 + 앞으로 기울기
-   *   피격: 0.1초 흰 tint / 기절: 흔들림 / 넉백: kb 각도가 감쇠
+   * 기수(2차) — 부대(무장)마다 병사 3명이 작은 부대 깃발(field_flag_<g|b>)을 등 뒤에 든다. 유닛 Sprite 는 그대로 하나, 깃발만 별도 Sprite(편당 6).
+   * 그림은 깃대가 왼쪽·천이 오른쪽 → 오른쪽 보는 유닛은 음수 scaleX 로 천을 뒤(왼쪽)로 날린다. origin 은 깃대 밑동(0.13, 1).
    */
-  syncSprites(time) {
+  buildBearers() {
+    for (const f of this.flagByUnit.values()) f.destroy();
+    this.flagByUnit.clear();
+    const count = new Map();   // generalId → 지금까지 센 병사 수
+    const units = this.sim.units;
+    for (let i = 0; i < units.length; i++) {
+      const u = units[i];
+      if (u.kind === 'general') continue;
+      const n = count.get(u.generalId) || 0;
+      count.set(u.generalId, n + 1);
+      if (!BEARER_SLOTS.includes(n)) continue;
+      const key = u.side === 'left' ? 'field_flag_g' : 'field_flag_b';
+      if (!this.textures.exists(key)) continue;
+      const f = this.add.sprite(u.x, u.y, key).setOrigin(0.13, 1).setScale(FLAG_SCALE).setVisible(false);   // 납품 그림 깃대 x 5~7/48
+      this.flagByUnit.set(u.id, f);
+    }
+  }
+
+  /** 무장 이름표(붓글씨, 머리 위) — 발밑 링은 syncSprites 가 그림자 Graphics 에 같이 그린다. 전장에서 찾기 쉽게 */
+  buildGeneralViews() {
+    for (const v of this.genViews) v.label.destroy();
+    this.genViews = [];
+    for (const meta of this.genMeta.values()) {
+      const u = meta.unit;
+      const label = this.add.text(u.x, u.y, meta.name, {
+        fontFamily: '"Nanum Brush Script", "Song Myung", serif', fontSize: '22px',
+        color: u.id === this.playerId ? '#ffe9a8' : meta.side === 'left' ? '#d6ffd9' : '#d6e4ff',
+        stroke: '#1a120c', strokeThickness: 4,
+      }).setOrigin(0.5, 1).setDepth(LAYER.name);
+      if (typeof label.setResolution === 'function') label.setResolution(1.5);   // 줌 1.15~1.25 에서 덜 뭉개지게
+      this.genViews.push({ unit: u, label, color: SIDE_COLOR[meta.side], h: this.texFor(u).h });
+    }
+  }
+
+  /**
+   * 유닛 → 스프라이트 위치·연출. for 한 번 (§4.1 + BATTLE_ART §5).
+   *   이동: 상하 bob ±2px 6Hz + 속도 방향 기울기 ±6° / 공격: attackT 로 전방 찌르기 8px(무장 12) + 0.15~0.75 구간 attack 그림
+   *   피격: 0.1초 흰 tint / 기절: 흔들림 / 넉백: kb 각도(−40°→0, 밀려나는 쪽으로 젖혀진다)가 감쇠 / 기수: 깃발이 따라다니며 펄럭임(scaleX)
+   */
+  syncSprites(time, delta = 16.7, stopped = false) {
     const units = this.sim.units;
     const sg = this.shadowG;
+    const at = this.animT;
+    const kbDecay = Math.pow(0.86, delta / 16.67);   // 프레임 속도와 무관하게 같은 감쇠(250ms 에 −40° → −4°)
     sg.clear();
     sg.fillStyle(0x000000, 0.28);
+    // 그림자에 편 색을 살짝 섞는다 — 병사 그림이 작아(폰 20px) 투구·갑옷 색만으론 아군/적군이 한눈에 안 갈린다.
+    // 유닛 배열은 편별로 이어져 있어 fillStyle 호출은 프레임당 몇 번뿐이다.
+    let shadowSide = null;
     let player = null;
     for (let i = 0; i < units.length; i++) {
       const u = units[i];
@@ -447,37 +685,70 @@ export default class BattleScene extends Phaser.Scene {
       if (s.dying) continue;
       if (u.state === 'dead') { this.startDeath(s, u); continue; }
 
+      const t = s.tex;
       const isGen = u.kind === 'general';
       const f = u.facing < 0 ? -1 : 1;
       let dx = 0, dy = 0, ang = 0;
+      let want = t.key;
       if (u.state === 'move' || u.state === 'flee') {
-        const ph = time * 0.0377 + u.id * 1.7;        // 6Hz, 유닛마다 위상 다르게
-        dy = Math.sin(ph) * 2;
-        ang = f * 3 * Math.sin(ph * 0.5);
+        dy = Math.sin(at * 0.0377 + u.id * 1.7) * 2;   // 6Hz, 유닛마다 위상 다르게
+        ang = u.vx * 0.045;                            // 달리는 쪽으로 숙인다: 보병 95px/s → 4.3°, 기병·무장은 ±6° 에서 자른다
+        if (ang > 6) ang = 6; else if (ang < -6) ang = -6;
       } else if (u.state === 'attack') {
-        const k = Math.sin(Math.PI * (u.attackT || 0));  // 0→1→0
+        const aT = u.attackT || 0;
+        const k = Math.sin(Math.PI * aT);  // 0→1→0
         dx = f * (isGen ? 12 : 8) * k;
-        ang = f * (isGen ? 18 : 14) * k;
+        // attack 그림이 있으면 자세는 그림이 맡는다 → 기울기는 조금만. 없으면 1차처럼 크게 숙인다
+        ang = f * (t.atk ? (isGen ? 8 : 6) : (isGen ? 18 : 14)) * k;
+        if (t.atk && aT >= 0.15 && aT <= 0.75) want = t.atk;
       } else if (u.state === 'stun') {
-        ang = Math.sin(time * 0.02 + u.id) * 12;
+        ang = Math.sin(at * 0.02 + u.id) * 12;
       }
+      if (s.curKey !== want) { s.setTexture(want); s.curKey = want; }
       if (s.kb) {
-        ang += s.kb * f;
-        s.kb *= 0.86;
-        if (Math.abs(s.kb) < 0.5) s.kb = 0;
+        ang += s.kb;
+        // (통합) 히트스톱 동안은 감쇠를 멈춘다 — 무장기의 knockback 은 skill 과 같은 프레임에 와서, 멈춘 120ms 사이에 ±40° 가 13° 까지
+        //   풀려 버리고 정작 밀려날 땐 회전이 안 남았다(검수)
+        if (!stopped) s.kb *= kbDecay;
+        if (s.kb < 0.5 && s.kb > -0.5) s.kb = 0;
       }
       if (s.flashing && time >= s.flashUntil) {
-        s.setTint(s.baseTint);
+        this.restoreTint(s);
         s.flashing = false;
       }
-      s.x = u.x + dx;
+      const bx = u.x + dx;                              // 몸(발밑) 자리
+      s.x = bx - f * ((want === t.atk ? t.axAtk : t.ax) || 0);   // U2_ANCHOR — 그림 상자를 밀어 몸 중심 열이 bx 에 오게
       s.y = u.y + dy;
       s.flipX = f < 0;
       s.angle = ang;
       s.depth = u.y;
+      const fl = s.flag;
+      if (fl) {
+        fl.x = bx - f * 6;                              // 깃대는 몸 기준(상자 기준이면 stand↔attack 교체 때 깃발이 튄다)
+        fl.y = s.y - t.h * 0.42;                       // 깃대 밑동 = 허리 뒤
+        // 천이 등 뒤로 + 펄럭임. ※ flipX 는 그림 상자 안에서만 뒤집어(깃대가 origin 에서 떨어져 나간다) 음수 scaleX 로 origin(깃대) 기준 거울
+        fl.scaleX = (f > 0 ? -FLAG_SCALE : FLAG_SCALE) * (0.8 + 0.2 * Math.sin(at * 0.009 + u.id));
+        fl.angle = ang * 0.6 - f * 7;
+        fl.depth = u.y - 0.5;
+      }
       // smoothness 8: 기본 32 면 244개 × 매 프레임 32각형 할당·삼각분할 — 18×6px 타원엔 8각형이면 같아 보이고 비용 1/4(통합 검수)
-      sg.fillEllipse(u.x, u.y + 1, isGen ? 36 : 18, isGen ? 11 : 6, 8);
+      if (u.side !== shadowSide) { shadowSide = u.side; sg.fillStyle(u.side === 'left' ? 0x0f4a22 : 0x13307a, 0.42); }
+      sg.fillEllipse(u.x, u.y + 1, t.sw, t.sh, 8);
       if (u.id === this.playerId) player = u;
+    }
+    // 무장: 발밑 편 색 링(그림자 Graphics 에 같이) + 이름표
+    const gv = this.genViews;
+    for (let i = 0; i < gv.length; i++) {
+      const v = gv[i], u = v.unit;
+      const on = u.state !== 'dead' && u.state !== 'gone';
+      if (v.label.visible !== on) v.label.setVisible(on);
+      if (!on) continue;
+      sg.fillStyle(v.color, 0.25);
+      sg.fillEllipse(u.x, u.y + 1, 56, 18, 16);
+      sg.lineStyle(2.5, v.color, 0.95);
+      sg.strokeEllipse(u.x, u.y + 1, 56, 18, 16);
+      v.label.x = u.x;
+      v.label.y = u.y - v.h - 6;
     }
     if (this.playerGlow) {
       if (player) this.playerGlow.setPosition(player.x, player.y + 2).setVisible(true);
@@ -486,15 +757,28 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 카메라 — 조종 무장을 lerp 0.08 로 따라가며 전방 120px 앞서 본다. 줌 1, 경계 0~3200.
+  // 카메라 — 조종 무장을 lerp 0.08 로 따라가며 전방 120px 앞서 본다. 줌 1.15(무장기 때 1.25 펀치), 경계 0~3200.
+  //   줌 z 면 보이는 폭은 W/z, 화면 가운데는 scrollX + W/2 → 가운데를 [W/2z, 3200 − W/2z] 로 자른다(scrollX 는 음수도 된다).
+  //   세로는 보이는 아래 변을 y 720 에 붙인다(땅 띠가 화면 아래쪽, 하늘 위 94px 은 HUD 뒤로 잘린다).
   // ─────────────────────────────────────────────────────────────
 
   setupCamera() {
     const cam = this.cameras.main;
-    cam.setZoom(1);
+    cam.setZoom(CAM_ZOOM);
     cam.setBounds(0, 0, FIELD.w, FIELD.h);
-    cam.scrollX = 0;
-    cam.scrollY = 0;
+    cam.scrollX = this.scrollXFor(W / 2, CAM_ZOOM);
+    cam.scrollY = this.scrollYFor(CAM_ZOOM);
+  }
+
+  /** 화면 가운데가 centerX 를 보게 하는 scrollX (전장 밖이 안 보이게 자른다) */
+  scrollXFor(centerX, zoom) {
+    const hw = W / (2 * zoom);
+    return Phaser.Math.Clamp(centerX, hw, Math.max(hw, FIELD.w - hw)) - W / 2;
+  }
+
+  /** 보이는 아래 변을 전장 아래 변에 붙이는 scrollY */
+  scrollYFor(zoom) {
+    return (FIELD.h - FIELD.h / zoom) / 2;
   }
 
   /** 따라갈 무장 — 플레이어, 죽었으면 살아 있는 아군 무장, 없으면 마지막 위치 */
@@ -505,12 +789,23 @@ export default class BattleScene extends Phaser.Scene {
     return gens.find((u) => u.state !== 'dead' && u.state !== 'gone') || p || null;
   }
 
-  updateCamera(delta) {
+  updateCamera(time, delta) {
+    const cam = this.cameras.main;
+    // 줌 펀치: 0.2초에 1.25 까지(easeOut) → 0.32초에 복귀(cos). 트윈·zoomTo 대신 직접 — 재발동·히트스톱과 안 엉킨다
+    let z = CAM_ZOOM;
+    const pt = time - this.punchAt;
+    if (pt >= 0 && pt < PUNCH_IN + PUNCH_OUT) {
+      let k;
+      if (pt < PUNCH_IN) { const a = 1 - pt / PUNCH_IN; k = 1 - a * a; }
+      else k = 0.5 + 0.5 * Math.cos(Math.PI * (pt - PUNCH_IN) / PUNCH_OUT);
+      z += (CAM_PUNCH - CAM_ZOOM) * k;
+    }
+    if (cam.zoom !== z) cam.setZoom(z);
+    cam.scrollY = this.scrollYFor(z);
     const t = this.camTarget();
     if (!t) return;
-    const cam = this.cameras.main;
     // 목표도 경계 안으로 잘라 두어야 전장 끝에서 lerp 가 벽에 눌려 느려지지 않는다(카메라 bounds 는 preRender 에서 한 번 더 자른다)
-    const want = Phaser.Math.Clamp(t.x + (t.facing < 0 ? -1 : 1) * CAM_LEAD - W / 2, 0, FIELD.w - W);
+    const want = this.scrollXFor(t.x + (t.facing < 0 ? -1 : 1) * CAM_LEAD, z);
     const k = 1 - Math.pow(1 - CAM_LERP, delta / 16.67);   // 프레임 속도와 무관하게 같은 감쇠
     cam.scrollX += (want - cam.scrollX) * k;
   }
@@ -565,15 +860,23 @@ export default class BattleScene extends Phaser.Scene {
     return null;
   }
 
+  /**
+   * 조이스틱 그림. j.ox/oy 는 화면 좌표(포인터)인데, 카메라 줌은 scrollFactor 0 인 것도 화면 가운데 기준으로 z 배 키운다
+   *   (화면 = c + z·(그린 자리 − c)) → 그릴 자리를 c + (화면 − c)/z, 크기를 1/z 로 역변환해야 손가락 밑에 제 크기로 나온다.
+   *   (2차에서 줌 1 → 1.15 가 되며 추가. 입력 계산(onPointerDown·applyInput)은 화면 좌표 그대로라 손대지 않았다.)
+   */
   drawJoy() {
     const j = this.joy;
     const g = this.joyG;
+    const z = this.cameras.main.zoom || 1;
+    const cx = W / 2, cy = FIELD.h / 2;
+    const ox = cx + (j.ox - cx) / z, oy = cy + (j.oy - cy) / z, R = JOY_R / z;
     g.clear().setVisible(true);
-    g.lineStyle(3, 0xffffff, 0.35).strokeCircle(j.ox, j.oy, JOY_R);
-    g.fillStyle(0xffffff, 0.08).fillCircle(j.ox, j.oy, JOY_R);
-    const kx = j.ox + j.dx * JOY_R, ky = j.oy + j.dy * JOY_R;
-    g.fillStyle(0xf6e9c9, 0.6).fillCircle(kx, ky, 26);
-    g.lineStyle(2, 0x3a2a12, 0.6).strokeCircle(kx, ky, 26);
+    g.lineStyle(3 / z, 0xffffff, 0.35).strokeCircle(ox, oy, R);
+    g.fillStyle(0xffffff, 0.08).fillCircle(ox, oy, R);
+    const kx = ox + j.dx * R, ky = oy + j.dy * R;
+    g.fillStyle(0xf6e9c9, 0.6).fillCircle(kx, ky, 26 / z);
+    g.lineStyle(2 / z, 0x3a2a12, 0.6).strokeCircle(kx, ky, 26 / z);
   }
 
   /** 조이스틱·키보드 → setGeneralInput. 매 프레임 (0,0 이면 제자리에서 자동 공격만) */
@@ -604,6 +907,31 @@ export default class BattleScene extends Phaser.Scene {
         const n = Math.hypot(kx, ky);
         dx = kx / n;
         dy = ky / n;
+      }
+    }
+    // 자동 따라가기 — 돌격 명령 뒤 손을 떼고 있으면 부대만 나가고 조종 무장이 혼자 남는다(첫 판에 누구나 겪는다).
+    //   1.2초 이상 입력이 없고 병법이 돌격이면 자기 부대 중심을 향해 걷는다. 조이스틱·키를 건드리면 바로 수동으로 돌아온다.
+    const now = this.time.now;
+    if (dx || dy) {
+      this.lastManualT = now;
+    } else if (this.playerId != null && now - (this.lastManualT || 0) > 1200
+      && this.sim.commandOf && this.sim.commandOf('left') === 'charge') {
+      if (!this.followT || now - this.followT > 200) {           // 부대 중심은 0.2초마다만 다시 잰다
+        this.followT = now;
+        let sx = 0, sy = 0, n = 0;
+        const us = this.sim.units;
+        for (let i = 0; i < us.length; i++) {
+          const u = us[i];
+          if (u.generalId === this.playerId && u.id !== this.playerId && u.alive !== false
+            && u.state !== 'dead' && u.state !== 'gone' && u.state !== 'flee') { sx += u.x; sy += u.y; n++; }
+        }
+        this.followTarget = n ? { x: sx / n, y: sy / n } : null;
+      }
+      const me = this.sim.unitById ? this.sim.unitById(this.playerId) : this.sim.units[this.playerId];
+      const tg = this.followTarget;
+      if (me && tg) {
+        const vx = tg.x - me.x, vy = tg.y - me.y, d = Math.hypot(vx, vy);
+        if (d > 70) { dx = (vx / d) * 0.85; dy = (vy / d) * 0.85; }
       }
     }
     if (this.playerId != null) this.sim.setGeneralInput('left', this.playerId, { dx, dy });
@@ -655,7 +983,9 @@ export default class BattleScene extends Phaser.Scene {
     const evs = this.sim.drainEvents();
     if (!evs || !evs.length) return;
     const cam = this.cameras.main;
-    const viewL = cam.scrollX - 60, viewR = cam.scrollX + W + 60;
+    // 보이는 범위 — 줌 z 면 화면 가운데(scrollX + W/2) ± W/2z. 타격 이펙트·타격음은 이 안에서만(풀 60 을 화면 밖에 쓰지 않는다)
+    const vc = cam.scrollX + W / 2, vh = W / (2 * (cam.zoom || 1)) + 60;
+    const viewL = vc - vh, viewR = vc + vh;
     for (let i = 0; i < evs.length; i++) {
       const e = evs[i];
       switch (e.type) {
@@ -670,15 +1000,26 @@ export default class BattleScene extends Phaser.Scene {
           const to = this.unitById.get(e.to);
           const fromGen = from && from.kind === 'general';
           const toGen = to && to.kind === 'general';
-          // 무장기 피해(e.skill)는 한 방에 수십 명 — 궤적 대신 불꽃만. 화살은 궤적 없음
+          const vis = e.x > viewL && e.x < viewR;
+          const dir = from && from.facing < 0 ? -1 : 1;
+          // 무장기 피해(e.skill)는 한 방에 수십 명 — 궤적 대신 불꽃만. 화살은 궤적 없음(작은 불꽃만)
           if (e.skill) this.fx.sparks(e.x, e.y - 20, 2);
-          else if (from && from.kind !== 'bow') this.fx.slash(e.x, e.y, from.facing < 0 ? -1 : 1, fromGen);
+          else if (from && from.kind === 'bow') { if (vis) this.fx.spawnSpark(e.x, e.y - 18, 30); }
+          else if (from) {
+            // 2차: 무장 공격 = slash_white 호 + 불꽃, 병사 = 불꽃 1 + 먼지 2. 텍스처가 없으면(false) 1차 Graphics 호
+            if (fromGen) {
+              if (vis && !this.fx.slashBig(from.x, from.y, dir)) this.fx.slash(e.x, e.y, dir, true);
+              if (vis) this.fx.hit(e.x, e.y, dir, true);
+            } else if (vis && !this.fx.hit(e.x, e.y, dir, toGen)) {
+              this.fx.slash(e.x, e.y, dir, false);
+            }
+          }
           if (toGen) {
             this.fx.damage(e.x, e.y - 62, e.dmg, !!e.crit);
             this.fx.sparks(e.x, e.y - 30, e.crit ? 10 : 5);
           }
           // 타격음 — 화면 안, 90ms 에 한 번, 병사끼리는 셋에 하나만
-          if (!e.skill && e.x > viewL && e.x < viewR && time - this.lastHitSfx > 90 && (fromGen || toGen || e.to % 3 === 0)) {
+          if (!e.skill && vis && time - this.lastHitSfx > 90 && (fromGen || toGen || e.to % 3 === 0)) {
             this.lastHitSfx = time;
             sfx('hit');
           }
@@ -688,9 +1029,12 @@ export default class BattleScene extends Phaser.Scene {
           this.fx.arrow(e.x0, e.y0, e.x1, e.y1, e.ms);
           break;
         case 'death': {
-          this.fx.dust(e.x, e.y, 6);
+          // 2차: 먼지 뭉치 3 + 핏자국 데칼(20초 뒤 페이드). 먼지 텍스처가 없으면 1차 파티클
+          if (e.x > viewL && e.x < viewR && !this.fx.puffs(e.x, e.y, 3)) this.fx.dust(e.x, e.y, 6);
           const u = this.unitById.get(e.id);
-          if (u && u.kind === 'general') {
+          const gen = u && u.kind === 'general';
+          this.fx.decal(e.x, e.y + 2, 'blood', gen ? 84 : 40 + (e.id % 5) * 4, time);
+          if (gen) {
             cam.shake(220, 0.006);
             this.fx.sparks(e.x, e.y - 30, 14);
           }
@@ -705,16 +1049,20 @@ export default class BattleScene extends Phaser.Scene {
           const s = this.spriteById.get(e.id);
           if (s && !s.dying) {
             const dir = e.dx < 0 ? -1 : 1;
-            s.kb = 28;
+            s.kb = 40 * dir;          // 밀려나는 쪽으로 −40°(왼쪽)/+40° 젖혀졌다 syncSprites 에서 0 으로 감쇠 (1차는 28° 앞으로 숙임)
             this.fx.ghost(s, dir);
-            this.fx.dust(s.x, s.y, 3);
+            if (s.x > viewL && s.x < viewR && !this.fx.puffs(s.x, s.y, 1, 36)) this.fx.dust(s.x, s.y, 3);
           }
           break;
         }
-        case 'command':
+        case 'command': {
+          // (통합) command() 가 누르는 즉시 emit 하고 sim 도 같은 명령을 이벤트로 돌려준다. 인트로 1.2초 동안은 이 큐가 안 비워져
+          //   HUD 의 400ms 중복 제거 창을 넘겨 「돌격!」 이 두 번 떴다(검수) → 이미 반영된 왼쪽 명령은 다시 알리지 않는다
+          const echo = e.side === 'left' && this.cmd.left === e.cmd;
           if (e.side === 'left' || e.side === 'right') this.cmd[e.side] = e.cmd;
-          this.events.emit('battle:command', e);
+          if (!echo) this.events.emit('battle:command', e);
           break;
+        }
         case 'end':
           this.onEnd(e);
           break;
@@ -724,20 +1072,52 @@ export default class BattleScene extends Phaser.Scene {
     }
   }
 
-  /** 무장기 발동 — 흔들림·번쩍임·범위 표시·먼지·컷인(HUD) */
-  onSkill(e) {
+  /**
+   * 무장기 발동 — 히트스톱 120ms + 흔들림 0.35초 + 흰 flash + 줌 펀치 1.25 + 모양별 이펙트 + 범위 표시·먼지·컷인(HUD).
+   *   cone(청룡참): slash_blue 가 range 만큼 날아가며 커진다 / circle(포효·쌍극): ring 이 2배로 퍼진다 + 패인 자국
+   *   dash(맹공): 출발 impact → update 의 돌진 궤적(먼지) → 도착 impact.  맞은 적은 'knockback' 이벤트로 튕기며 회전한다.
+   */
+  onSkill(e, time = this.time.now) {
     const meta = this.genMeta.get(e.id);
     const sk = (meta && meta.skill) || resolveSkill(this.battleData || DEFAULT_DATA, e.skill, null);
     const facing = e.facing < 0 ? -1 : 1;
     const cam = this.cameras.main;
-    cam.shake(300, 0.012);
+    cam.shake(350, 0.012);
     cam.flash(120, 255, 255, 255);
-    this.fx.area(e.x, e.y, facing, sk);
-    this.fx.dust(e.x, e.y, 14);
+    this.hitStopUntil = time + HITSTOP_MS;
+    this.punchAt = time;
+    let drawn = false;
+    if (sk.shape === 'cone') drawn = this.fx.skillCone(e.x, e.y, facing, sk.range);
+    else if (sk.shape === 'dash') {
+      drawn = this.fx.impact(e.x + facing * 20, e.y - 26, 150);
+      const u = this.unitById.get(e.id);
+      const data = this.battleData && this.battleData.SKILLS && this.battleData.SKILLS[sk.id];
+      if (u) this.dash = { unit: u, facing, until: time + HITSTOP_MS + ((data && data.dashMs) || 420), next: 0 };
+    } else {
+      drawn = this.fx.skillRing(e.x, e.y, sk.range);
+      this.fx.decal(e.x, e.y + 2, 'crater', Math.min(200, sk.range * 0.6), time);
+    }
+    this.fx.area(e.x, e.y, facing, sk, drawn ? 0.5 : 1);   // 2차 이펙트가 나갔으면 범위 표시는 옅게
+    if (!this.fx.puffs(e.x, e.y, 5, 70)) this.fx.dust(e.x, e.y, 14);
     this.fx.sparks(e.x, e.y - 30, 18);
     if (e.side === 'left' || e.side === 'right') this.skillUsed[e.side]++;
     sfx('skill');
     this.events.emit('battle:skill', meta || { id: e.id, side: e.side, name: '', key: null, skill: sk, color: 0xffd24a });
+  }
+
+  /** 맹공 돌진 궤적 — 돌진하는 동안 45ms 마다 발밑 먼지, 끝나면 도착 impact */
+  updateDash(time) {
+    const d = this.dash;
+    if (!d) return;
+    const u = d.unit;
+    if (time >= d.until || u.state === 'dead' || u.state === 'gone') {
+      this.fx.impact(u.x + d.facing * 24, u.y - 26, 190);
+      this.fx.puffs(u.x, u.y, 4, 64);
+      this.dash = null;
+    } else if (time >= d.next) {
+      d.next = time + 45;
+      this.fx.puffs(u.x - d.facing * 14, u.y, 1, 52);
+    }
   }
 
   onEnd(e) {
@@ -762,31 +1142,40 @@ export default class BattleScene extends Phaser.Scene {
 
   update(time, delta) {
     this.fx.update(time, delta);
+    this.updateFog(delta);
     if (!this.sim) return;
+    // 히트스톱(무장기 직후 120ms): sim 도 연출 시계(bob·펄럭임)도 멈춘다. 카메라·fx·입력은 계속 돈다
+    //   이 동안의 delta 는 버린다(누적해 뒤에 따라잡지 않는다) — sim 은 step 호출 누계·입력만 보므로 결정성과 무관하고,
+    //   sim.time(180초 제한·HUD 시계)만 실시간보다 무장기 한 번에 0.12초씩 늦어진다
+    const stopped = time < this.hitStopUntil;
+    if (!stopped) this.animT += delta;
 
     // 「전투 개시」 동안은 sim 을 멈춘 채 첫 장면만 보여 준다
     if (time < this.introUntil) {
-      this.syncSprites(time);
-      this.updateCamera(delta);
+      this.syncSprites(time, delta);
+      this.updateCamera(time, delta);
       return;
     }
     // 끝난 뒤 1.5초는 죽음 연출을 위해 더 굴리고, 그 뒤 얼린다
     const frozen = this.ended && time >= this.freezeAt;
     if (!frozen) {
       this.applyInput();
-      // delta 를 ≤50ms 로 쪼개 최대 4번 — 남는 시간은 버린다(탭 복귀 폭주 방지)
-      let remain = Math.min(delta, MAX_STEP * MAX_STEPS);
-      let n = 0;
-      while (remain > 0 && n < MAX_STEPS) {
-        const dt = Math.min(MAX_STEP, remain);
-        this.sim.step(dt);
-        remain -= dt;
-        n++;
+      if (!stopped) {
+        // delta 를 ≤50ms 로 쪼개 최대 4번 — 남는 시간은 버린다(탭 복귀 폭주 방지)
+        let remain = Math.min(delta, MAX_STEP * MAX_STEPS);
+        let n = 0;
+        while (remain > 0 && n < MAX_STEPS) {
+          const dt = Math.min(MAX_STEP, remain);
+          this.sim.step(dt);
+          remain -= dt;
+          n++;
+        }
+        this.handleEvents(time);
+        this.updateDash(time);
+        if (!this.ended && this.sim.result) this.onEnd(null);
       }
-      this.handleEvents(time);
-      if (!this.ended && this.sim.result) this.onEnd(null);
     }
-    this.syncSprites(time);
-    this.updateCamera(delta);
+    this.syncSprites(time, delta, stopped);
+    this.updateCamera(time, delta);
   }
 }

@@ -1,0 +1,59 @@
+cav_g_attack.png → cav_b_attack.png 초록 1640 px → 파랑
+bow_g_attack.png → bow_g_attack.png 상체 청록 162 px → 연두 그늘, 속자락 108 px → 흰색
+bow_g_stand.png              시위 87 px 그림 (x 25~100, y 84~85)
+bow_b_stand.png              시위 86 px 그림 (x 24~100, y 84~85)
+gen_guanyu_stand.png         머리카락 속 점 8 px 덮음 (H 65~175)
+gen_guanyu_attack.png        머리카락 속 점 6 px 덮음 (H 65~175)
+gen_xiahoudun_stand.png      머리카락 속 점 14 px 덮음 (H 170~215)
+gen_xiahoudun_attack.png     머리카락 속 점 13 px 덮음 (H 170~215)
+gen_xiahoudun_stand.png      배경색 잔여 7 px 대체
+gen_dianwei_attack.png       허벅지 살색 133 px → 갑옷색
+bow_b_attack.png             자홍 11 px 대체 · 옅은 보라 37 px 채도↓ · 조각 0 px 제거
+bow_b_stand.png              자홍 1 px 대체 · 옅은 보라 15 px 채도↓ · 조각 7 px 제거
+bow_g_attack.png             자홍 7 px 대체 · 옅은 보라 34 px 채도↓ · 조각 0 px 제거
+bow_g_stand.png              자홍 4 px 대체 · 옅은 보라 13 px 채도↓ · 조각 1 px 제거
+cav_b_attack.png             변화 없음 (자홍 0 px 대체 · 옅은 보라 0 px 채도↓ · 조각 0 px 제거)
+cav_b_stand.png              자홍 4 px 대체 · 옅은 보라 4 px 채도↓ · 조각 1 px 제거
+cav_g_attack.png             변화 없음 (자홍 0 px 대체 · 옅은 보라 0 px 채도↓ · 조각 0 px 제거)
+cav_g_stand.png              자홍 1 px 대체 · 옅은 보라 2 px 채도↓ · 조각 0 px 제거
+gen_dianwei_attack.png       자홍 4 px 대체 · 옅은 보라 16 px 채도↓ · 조각 0 px 제거
+gen_dianwei_stand.png        변화 없음 (자홍 0 px 대체 · 옅은 보라 0 px 채도↓ · 조각 0 px 제거)
+gen_guanyu_attack.png        변화 없음 (자홍 0 px 대체 · 옅은 보라 0 px 채도↓ · 조각 0 px 제거)
+gen_guanyu_stand.png         변화 없음 (자홍 0 px 대체 · 옅은 보라 0 px 채도↓ · 조각 0 px 제거)
+gen_xiahoudun_attack.png     변화 없음 (자홍 0 px 대체 · 옅은 보라 0 px 채도↓ · 조각 0 px 제거)
+gen_xiahoudun_stand.png      변화 없음 (자홍 0 px 대체 · 옅은 보라 0 px 채도↓ · 조각 0 px 제거)
+gen_zhangfei_attack.png      자홍 0 px 대체 · 옅은 보라 0 px 채도↓ · 조각 5 px 제거
+gen_zhangfei_stand.png       자홍 14 px 대체 · 옅은 보라 14 px 채도↓ · 조각 10 px 제거
+inf_b_attack.png             변화 없음 (자홍 0 px 대체 · 옅은 보라 0 px 채도↓ · 조각 0 px 제거)
+inf_b_stand.png              변화 없음 (자홍 0 px 대체 · 옅은 보라 0 px 채도↓ · 조각 0 px 제거)
+inf_g_attack.png             변화 없음 (자홍 0 px 대체 · 옅은 보라 0 px 채도↓ · 조각 0 px 제거)
+inf_g_stand.png              변화 없음 (자홍 0 px 대체 · 옅은 보라 0 px 채도↓ · 조각 0 px 제거)
+spear_b_attack.png           자홍 1 px 대체 · 옅은 보라 4 px 채도↓ · 조각 0 px 제거
+spear_b_stand.png            변화 없음 (자홍 0 px 대체 · 옅은 보라 0 px 채도↓ · 조각 0 px 제거)
+spear_g_attack.png           변화 없음 (자홍 0 px 대체 · 옅은 보라 0 px 채도↓ · 조각 0 px 제거)
+spear_g_stand.png            변화 없음 (자홍 0 px 대체 · 옅은 보라 0 px 채도↓ · 조각 0 px 제거)
+bow_b_attack.png             (128, 160) 자홍=0 옅은보라=0 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=22 몸 높이=130 알파0 RGB합=0
+bow_b_stand.png              (128, 160) 자홍=0 옅은보라=0 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=21 몸 높이=131 알파0 RGB합=0
+bow_g_attack.png             (128, 160) 자홍=0 옅은보라=0 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=22 몸 높이=130 알파0 RGB합=0
+bow_g_stand.png              (128, 160) 자홍=0 옅은보라=0 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=21 몸 높이=131 알파0 RGB합=0
+cav_b_attack.png             (128, 160) 자홍=0 옅은보라=0 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=4 몸 높이=148 알파0 RGB합=0
+cav_b_stand.png              (128, 160) 자홍=0 옅은보라=0 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=5 몸 높이=147 알파0 RGB합=0
+cav_g_attack.png             (128, 160) 자홍=0 옅은보라=0 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=4 몸 높이=148 알파0 RGB합=0
+cav_g_stand.png              (128, 160) 자홍=0 옅은보라=0 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=5 몸 높이=147 알파0 RGB합=0
+gen_dianwei_attack.png       (128, 160) 자홍=0 옅은보라=0 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=12 몸 높이=140 알파0 RGB합=0
+gen_dianwei_stand.png        (128, 160) 자홍=0 옅은보라=0 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=6 몸 높이=146 알파0 RGB합=0
+gen_guanyu_attack.png        (128, 160) 자홍=0 옅은보라=0 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=16 몸 높이=136 알파0 RGB합=0
+gen_guanyu_stand.png         (128, 160) 자홍=0 옅은보라=0 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=10 몸 높이=142 알파0 RGB합=0
+gen_xiahoudun_attack.png     (128, 160) 자홍=0 옅은보라=2 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=20 몸 높이=132 알파0 RGB합=0
+gen_xiahoudun_stand.png      (128, 160) 자홍=0 옅은보라=0 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=9 몸 높이=143 알파0 RGB합=0
+gen_zhangfei_attack.png      (128, 160) 자홍=0 옅은보라=0 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=17 몸 높이=135 알파0 RGB합=0
+gen_zhangfei_stand.png       (128, 160) 자홍=0 옅은보라=0 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=8 몸 높이=144 알파0 RGB합=0
+inf_b_attack.png             (128, 160) 자홍=0 옅은보라=0 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=34 몸 높이=118 알파0 RGB합=0
+inf_b_stand.png              (128, 160) 자홍=0 옅은보라=0 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=23 몸 높이=129 알파0 RGB합=0
+inf_g_attack.png             (128, 160) 자홍=0 옅은보라=1 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=34 몸 높이=118 알파0 RGB합=0
+inf_g_stand.png              (128, 160) 자홍=0 옅은보라=0 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=23 몸 높이=129 알파0 RGB합=0
+spear_b_attack.png           (128, 160) 자홍=0 옅은보라=0 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=44 몸 높이=108 알파0 RGB합=0
+spear_b_stand.png            (128, 160) 자홍=0 옅은보라=4 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=22 몸 높이=130 알파0 RGB합=0
+spear_g_attack.png           (128, 160) 자홍=0 옅은보라=4 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=44 몸 높이=108 알파0 RGB합=0
+spear_g_stand.png            (128, 160) 자홍=0 옅은보라=5 조각(α>0/64/128)=[1, 1, 1] 발끝 y=152 머리끝 y=22 몸 높이=130 알파0 RGB합=0
+자홍 합계 0

@@ -11,7 +11,7 @@ root = r'C:\claude\gunyoung\assets\battle'
 raw = r'C:\claude\gunyoung\assets\raw\battle'
 files = ['sky.png','far.png','ground.png','cutin/guanyu.png','cutin/zhangfei.png','cutin/xiahoudun.png','cutin/dianwei.png',
          'units/inf.png','units/spear.png','units/bow.png','units/cav.png','units/general_left.png','units/general_right.png']
-BG = {'cutin/guanyu.png': (241,34,109), 'cutin/zhangfei.png': (5,90,72)}   # 검수가 잰 배경색(키잉 뒤 남은 것 기준)
+BG = {'cutin/guanyu.png': (241,34,109), 'cutin/zhangfei.png': (5,90,72), 'cutin/xiahoudun.png': (250,6,129), 'cutin/dianwei.png': (249,30,127)}   # 검수가 잰 배경색(키잉 뒤 남은 것 기준)
 faces = []
 for f in files:
     p = os.path.join(root, f)

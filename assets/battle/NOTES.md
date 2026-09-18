@@ -9,7 +9,7 @@ BATTLE.md §5 의 12 파일. 원본·후보·스크립트는 전부 `assets/raw/
   - 앞머리 `masterpiece, best quality, very aesthetic, absurdres`
   - 부정 `lowres, worst quality, text, watermark, signature, logo, blurry, letters, writing, calligraphy, characters, seal, stamp, chinese text, kanji` + 항목별
   - 배치 스크립트 `batch_*.sh` 에 실제로 돌린 프롬프트가 그대로 있다.
-- 후처리 `python assets/raw/battle/post.py` — `key`(단색 배경 키잉: 초록은 G 우세도, 그 외는 모서리 평균색과의 거리 `--bg=auto`, `--sat` 부분 탈색, `--flip`, `--anchor=bottom` 발밑 정렬, `--despeckle`, **수정 회차 추가** `--fillholes=N` 가장자리 미접촉 알파 0 구멍(<N px)+그 둘레 램프를 원본 RGB 로 복원 · `--close=1` 알파 closing · `--decontam` 반투명 픽셀 RGB 를 가장 가까운 불투명 색으로(프린지 제거, 알파 0 은 RGB 0) · `--gain`) · `sky`(`--loop=N` 양끝 페더 루프, 선택) · `ground`(좌우 페더 루프) · `far` · `seam`(좌우 끝 겹쳐 붙여 이음새 확인) · `sheet` · `check`
+- 후처리 `python assets/raw/battle/post.py` — `key`(단색 배경 키잉: 초록은 G 우세도, 그 외는 모서리 평균색과의 거리 `--bg=auto`, `--sat` 부분 탈색, `--flip`, `--anchor=bottom` 발밑 정렬, `--despeckle`, **수정 회차 추가** `--fillholes=N` 가장자리 미접촉 알파 0 구멍(<N px)+그 둘레 램프를 원본 RGB 로 복원 · `--close=1` 알파 closing · `--decontam` 반투명 픽셀 RGB 를 가장 가까운 불투명 색으로(프린지 제거, 알파 0 은 RGB 0) · `--gain` · **컷인 2차 추가** `--fillnear=N` 가장자리 미접촉 알파 0 구멍(<N px)+둘레 2px 를 알파 255 로 메우되 RGB 는 가장 가까운 진짜 전경색(알파 255·배경 거리≥30) — bgkeep 뒤) · `sky`(`--loop=N` 양끝 페더 루프, 선택) · `ground`(좌우 페더 루프) · `far` · `seam`(좌우 끝 겹쳐 붙여 이음새 확인) · `sheet` · `check`
 - `build_far.py` 산 띠 조립, `mock.py` 배치 목업(sky+far+ground+병사 0.3배+컷인 — 브라우저 대체), `verify_cutin.py` 컷인 구멍·프린지·눈 상자 알파 수치 + 어두운 배경 얼굴 크롭. 판정용 그림은 `raw/battle/_*.png`.
 
 ## 항목별
@@ -63,7 +63,7 @@ BATTLE.md §5 의 12 파일. 원본·후보·스크립트는 전부 `assets/raw/
 ## 파일 목록 (raw/battle)
 
 - `gen.sh` 래퍼, `batch_bg.sh`(sky 1~4·far 1~3·ground 1~3), `batch_sky2.sh`(sky 5·6 + s2 하이레즈), `batch_sky5.sh`(s5 하이레즈), `batch_units.sh`(6종 × seed 7·8), `batch_fix1.sh`(general_left 7~9 · ground 4·5), `batch_fix2.sh`(ground 6·7), cav 회색 말은 인라인(`u_cavgrey_s8·s9`), `batch_fix3.sh`(수정 회차: bowc·glc seed 7~10)
-- `post.py`, `build_far.py`, `mock.py`, `verify_cutin.py`
+- `post.py`, `build_far.py`, `mock.py`, `verify_cutin.py`, **컷인 2차** `batch_cutin2.sh`(xiahoudun·dianwei seed 21~24), `measure_bg.py`(분홍 배경색 측정 `bg` · 키잉 검증 `check`), `cut_xiahoudun_s21~24.png`·`cut_dianwei_s21~24.png`, `_sheet_cutin2.png` 후보 8장, `_cutin2_check.png`(어두운 배경 0.5배+얼굴 2배)·`_cutin2_zoom*.png` 판정 그림
 - `*_sN.png` 생성 원본, `sky_s5_patched/up/hi/hi_patched.png` 하늘 단계별, `k_*.png`·`k_units/`·`k_fix3/`(수정 회차 병사 후보 8)·`k_units2/`(despeckle 재키잉 비교용) 키잉 후보, `_sheet_*.png` 후보 시트, `_mock*.png` 배치 목업(`_mock_fix.png` 수정 회차), `_verify_final.png`·`_sky_final_check.png`·`_units_final_tint(2).png`·`_*_seam.png`·`_cutin_fix_check.png`·`_ground_fix_*.png`·`_far_fix_*.png` 판정 그림
 
 ## 통합 회차 (재검수 must·should → 통합 담당 처리)
@@ -76,3 +76,21 @@ BATTLE.md §5 의 12 파일. 원본·후보·스크립트는 전부 `assets/raw/
 | should: far.png 아래변 봉우리 밑동 알파 1(100여 열) | 코드에서 처리 — BattleScene 이 y 372→400 에 하늘색 안개 그라데이션 띠를 far 위·땅 아래에 깐다(far 밑변은 y 430 이라 아래 30px 은 땅 밑) | 브라우저 확인은 아직 |
 
 실패 기록 추가: **fillholes 는 배경색과 가까운 내부 틈(머리카락 사이)도 원본 RGB 로 메우고, close=1 은 2px 틈을 배경색 그대로 메운다** → 둘 다 쓸 땐 `--bgkeep` 필수(배경색 픽셀의 키잉 알파를 마지막에 되돌린다). fill_holes 안에서만 빼면 ring 단계(`alpha<255` 성분 — 알파 0 포함)가 이웃 점 구멍을 거쳐 배경 틈을 도로 메운다.
+
+## 컷인 2차 — 적 무장 하후돈·전위 (`cutin/xiahoudun.png`, `cutin/dianwei.png`)
+
+관우·장비와 같은 골격: `gen.sh` 832×1216, 앞머리·부정 공통 + `batch_cutin.sh` 의 항목 부정(`multiple boys, 2boys, horse, scenery, gradient background, pattern background, text, chibi, cute, female, 1girl, hat`)에 `red armor, green armor, pink clothes` 추가. 둘 다 푸른 갑옷이라 배경은 **분홍**(`pink background`). 스크립트 `raw/battle/batch_cutin2.sh`, seed 21~24 × 2 = 8장(`_sheet_cutin2.png`).
+
+| 파일 | 원본(seed) | 프롬프트 요지 | 후처리 |
+|---|---|---|---|
+| `cutin/xiahoudun.png` 832×1216 | cut_xiahoudun_s22 | `1boy, solo, mature male, xiahou dun, eyepatch, eyepatch over left eye, one eye covered, black beard, short beard, black hair, blue armor, blue robe, blue cape, ancient chinese armor, holding sword, huge weapon, large sword, curved sword, dao, upper body, dynamic pose, fierce, serious, glaring, looking at viewer, wind, dramatic, simple background, pink background, flat color background` | `post.py key cut_xiahoudun_s22.png cutin/xiahoudun.png --bg=250,6,129 --thr=60 --ramp=40 --erode=1 --despeckle=600 --bgkeep=20 --close=1 --fillnear=300 --decontam --flip` — **`--flip`**: 네 seed 중 셋(21·22·24)이 안대를 인물의 오른눈(보는 쪽 왼쪽)에 그려 s22 를 거울로 뒤집어 왼눈으로. **`--fillnear=300`**(post.py 에 추가): 칼날 가장자리의 분홍 반사선이 배경색 그대로라 거리 키잉에 2~3px 슬릿 10곳(최대 188px)이 뚫렸다 → 둘레 2px 까지 가장 가까운 전경색(칼날의 파랑/검정)으로 메움. 진짜 배경 틈(칼과 몸 사이 577·658·4741px)은 300 위라 남는다 |
+| `cutin/dianwei.png` 832×1216 | cut_dianwei_s22 | `1boy, solo, mature male, dian wei, muscular, bulky, broad shoulders, large pectorals, short beard, stubble, black hair, dark armor, black armor, blue sash, blue cloth, ancient chinese armor, dual wielding, two short halberds, halberd, polearm, upper body, dynamic pose, angry, fierce, shouting, looking at viewer, dramatic, simple background, pink background, flat color background` | `post.py key cut_dianwei_s22.png cutin/dianwei.png --bg=249,30,127 --thr=60 --ramp=40 --erode=1 --despeckle=600 --bgkeep=20 --close=1 --decontam` (fillholes·fillnear 없음 — 내부 투명 13곳은 전부 머리카락 가닥 사이(15~616px)·왼팔과 몸통 사이(10895·19406px) 진짜 틈, `_cutin2_zoom_d.png`) |
+
+- 후보 판정(`_sheet_cutin2.png`): 하후돈 s21 머리카락이 눈을 덮어 안대가 안 보임 · s22 채택(안대·푸른 갑옷과 망토·세워 든 큰 칼·짧은 검은 수염) · s23 안대가 왼눈에 바로 붙었지만 안대 밑에 붉은 점(기계눈처럼)·갈색 망토·정적인 포즈 · s24 안대·큰 곡도 호가 힘있지만 칼이 청록 참격 이펙트로 읽히고 얼굴이 작다. 전위 s21 칼 한 자루·수염 거의 없음 · s22 채택(거구 검은 갑옷·푸른 띠·등 뒤 쌍극 자루·이 드러낸 고함) · s23 극 한 자루만 보이고 덜 거구 · s24 창백한 얼굴에 송곳니(흡혈귀).
+- 배경색 측정: 인물이 캔버스를 거의 다 채워(분홍 6~14%) `--bg=auto`(모서리) 는 못 쓰고(s22 모서리 평균 (63,4,79)), 전체 최빈색도 검은 갑옷 (1,2,3) 이다 → `python raw/battle/measure_bg.py bg cut_*.png` — R>150·G<110·R>B 인 픽셀만으로 8단계 최빈색 근처 평균. 생성마다 다르다: xiahoudun s21 (249,34,116) s22 (250,6,129) s23 (250,23,125) s24 (249,24,102) / dianwei s21 (238,34,128) s22 (249,30,127) s23 (253,11,143) s24 (245,29,119).
+- 검증(`measure_bg.py check <keyed> r,g,b`): 둘 다 832×1216 RGBA, bbox 가 네 변 전부(트림해도 그대로), **배경 거리<30 불투명 픽셀 0**, 알파 0 RGB 0, 반투명 평균 xiahoudun (45,15,70) · dianwei (66,33,46). 눈 상자 알파 xiahoudun x368-390/y343-362, dianwei x270-295/y348-366·x372-395/y296-314 → 아래 확인값. 경계 3px 안 마젠타 기운 불투명 픽셀(머리카락 가닥 오염, ≤22px 조각) xiahoudun 179 · dianwei 273 vs 관우 133 — 같은 자릿수라 그대로 둠. 전위 입 속 붉은색은 배경과 거리 ~75 라 살아남았다(`_cutin2_check.png` 얼굴 크롭).
+- 코드 쪽: 둘 다 인물이 네 변에 닿는 구도(관우와 같음) — 캔버스 폭 그대로 슬라이드. 얼굴 xiahoudun (430,380) 부근(보이는 오른눈 (378,352), 안대 (485,367)) · dianwei (340,370) 부근(눈 (281,357)·(383,306), 입 (373,413)). `_integ_check.py` BG 에 두 장의 배경색을 넣어 뒀다.
+
+실패 기록 추가:
+- **배경색과 같은 하이라이트 선**: 분홍 배경으로 뽑으면 칼날·갑옷 가장자리 반사선을 배경 분홍으로 그린다(하후돈 s22 칼날 왼쪽 가장자리 2~3px) → 거리 키잉이 슬릿으로 뚫는다. `--fillholes` 는 분홍을 되살리고 `--bgkeep` 은 원본 RGB 기준이라 도로 뚫는다 → `--fillnear=N`(bgkeep 뒤, 가까운 전경색으로 메움). N 은 진짜 배경 틈 최소 크기(여기 577) 아래로.
+- `eyepatch over left eye` 는 안 먹는다(4장 중 3장이 오른눈) — 뒤집으면 된다(컷인은 방향 제약 없음). `dian wei` 태그만으론 창백한 흡혈귀 얼굴(s24)이 섞여 나온다 — seed 를 여럿 돌려 고른다.

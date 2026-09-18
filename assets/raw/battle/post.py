@@ -5,6 +5,7 @@
                         [--bgkeep=15] 원본 RGB 가 배경색과 거리 < N 인 픽셀은 진짜 배경(머리카락 틈)이라 fillholes·close 뒤에도 키잉 알파 유지(통합 수정)
                         [--close=1] 알파 closing(팽창→침식) — 키잉된 혼합 픽셀 톱니 메움   [--decontam] 반투명 픽셀 RGB 를 가장 가까운 불투명 픽셀 색으로(배경 프린지 제거), 알파 0 은 RGB 0
                         [--gain=1.0] 밝기 배수(어두운 망토 등)
+                        [--fillnear=300] (컷인 2차) 가장자리 미접촉 알파 0 구멍(<N px)+둘레 2px 를 알파 255 로 메우되 RGB 는 가장 가까운 진짜 전경색(알파 255·배경 거리≥30) — 배경색과 같은 하이라이트 선이 뚫렸을 때. --bgkeep 뒤에 적용
   python post.py sky    <src> <dst>  --crop=x0,y0,x1,y1 [--loop=128] → 2048x720 Lanczos (--loop: 양끝 N px 페더로 가로 루프)
   python post.py far    <src> <dst>  --crop=x0,y0,x1,y1 [--fade=px] [--lum --lo=.. --hi=..] [--feather=96] → 2048x360, 위 알파 페이드, 좌우 페더 루프
   python post.py ground <src> <dst>  --crop=x0,y0,x1,y1 [--feather=64] → 1024x320 좌우 페더 블렌드(seamless)
@@ -103,6 +104,25 @@ def decontaminate(rgb, alpha):
     res = rgb.copy(); res[semi] = out[semi]; res[alpha == 0] = 0
     return res
 
+def fill_near(rgb, alpha, max_px, bg, ring=2):
+    """컷인 2차(하후돈): 캔버스 가장자리에 안 닿는 알파 0 구멍(<max_px)과 둘레 ring px 의 반투명 픽셀을 알파 255 로 메우되,
+    RGB 는 원본(배경색 그대로)이 아니라 가장 가까운 「진짜 전경」(알파 255 이고 배경색과 거리 >= 30) 픽셀 색으로.
+    칼날 가장자리의 분홍 반사선이 배경색과 같아 거리 키잉에 2~3px 슬릿으로 뚫렸다 — --fillholes 는 분홍 패치를 되살리고(배경 거리<30 불투명 픽셀 0 규칙 위반),
+    --bgkeep 은 원본 RGB 기준이라 다시 뚫는다 → bgkeep 뒤에 적용한다. 진짜 배경 틈(칼과 몸 사이 577px+)은 max_px 아래로 잡아 남긴다."""
+    from scipy import ndimage
+    lab, n = ndimage.label(alpha == 0)
+    if n == 0: return rgb, alpha, 0
+    sizes = ndimage.sum(np.ones_like(alpha, dtype=np.float32), lab, range(1, n + 1))
+    edge = np.zeros(n + 1, bool)
+    for strip in (lab[0], lab[-1], lab[:, 0], lab[:, -1]): edge[np.unique(strip)] = True
+    fill = np.zeros(n + 1, bool); fill[1:] = sizes < max_px; fill &= ~edge; fill[0] = False
+    m = fill[lab]
+    if ring: m = ndimage.binary_dilation(m, iterations=ring) & (alpha < 255)
+    good = (alpha == 255) & (np.sqrt(((rgb.astype(np.float32) - bg) ** 2).sum(-1)) >= 30) & ~m
+    idx = ndimage.distance_transform_edt(~good, return_distances=False, return_indices=True)
+    out = rgb.copy(); out[m] = rgb[idx[0], idx[1]][m]
+    return out, np.where(m, 255, alpha).astype(np.uint8), int(fill.sum())
+
 def trim(img):
     bb = img.split()[-1].getbbox()
     return img.crop(bb) if bb else img
@@ -152,6 +172,10 @@ def do_key():
     if bgkeep is not None:
         al = np.where(bgkeep[0], bgkeep[1], al).astype(np.uint8)
         print('bgkeep <%g: 배경색 픽셀 %d (키잉 알파 유지)' % (bk, int(bgkeep[0].sum())))
+    fn = int(arg('fillnear', 0))            # 컷인 2차: 배경색 하이라이트 슬릿을 가까운 전경색으로 메움(bgkeep 뒤)
+    if fn:
+        bgc = np.array(BG['green'], np.float32) if bgn == 'green' else bg_color(a, bgn)
+        a, al, nf = fill_near(a, al, fn, bgc, int(arg('fillring', 2))); print('fillnear <%d: %d 개 메움(가까운 전경색)' % (fn, nf))
     if has('decontam'): a = decontaminate(a, al)   # 검수 수정: 프린지 제거
     gain = float(arg('gain', 1))
     if gain != 1: a = (a.astype(np.float32) * gain).clip(0, 255).astype(np.uint8)

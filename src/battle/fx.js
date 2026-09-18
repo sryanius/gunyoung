@@ -3,7 +3,8 @@
 //                       + 2차: ADD 스프라이트 풀 60(타격 불꽃·먼지 뭉치·베기 호·청룡참·충격파 링·돌진 충격) · 바닥 데칼 풀 40.
 //                       BattleScene 이 만들고 매 프레임 fx.update(time, delta) 를 부른다.
 //   cutin(scene, opts)  화면 좌표 컷인 — BattleHud 씬에 띄운다(카메라 영향 없음).
-//                       집중선(fx_speedlines) 회전 배경 + 초상(cutin_<id>) 오른쪽→왼쪽 0.7초 슬라이드 + 붓글씨 이름 + 흰 플래시.
+//                       (3차) 연출은 cutin.js 로 옮겼다: 눈 띠 → 사선 패널 + 주 일러스트 → 붓글씨 → 플래시 → 복귀 (BATTLE_V3.md §3.3).
+//                       여기 cutin() 은 이름·인자를 그대로 둔 채 playCutin 을 부르고 그 handle 을 돌려준다.
 // 매 프레임 생성·파괴를 피하려고 전부 풀로 둔다. 2차 풀(fx·데칼)은 트윈도 안 쓴다 — 스프라이트에 수명·속도·배율을 적어 두고
 //   update() 의 for 한 번으로 굴린다(타격은 초당 수십 번이라 트윈·클로저를 만들면 그게 곧 GC 다).
 // 텍스처: 'dust'·'spark'·'arrow'·'unit_inf' 는 BootScene 이 늘 만들고, 'fx_*'·'field_blood*'·'field_crater' 는 그림이 없으면
@@ -11,7 +12,9 @@
 //   hit()/slashBig() 은 false 를 돌려 BattleScene 이 1차 방식(Graphics 호)으로 폴백한다.
 // 3.60+ 파티클 문법: scene.add.particles(x, y, key, config) → ParticleEmitter, explode(count, x, y).
 
-const FONT_BRUSH = '"Nanum Brush Script", "Song Myung", serif';
+import { playCutin } from './cutin.js';   // (3차) 컷신 연출 본체
+
+// (검수 수정) FONT_BRUSH 상수는 지웠다 — 붓글씨는 컷인만 썼고 그 컷인이 cutin.js 로 갔다(거기 같은 상수가 있다). 안 쓰는 상수를 남겨 둘 이유가 없다.
 const FONT_BODY = '"Song Myung", "Noto Serif KR", serif';
 const DEG = Math.PI / 180;
 
@@ -482,77 +485,21 @@ export class Fx {
 }
 
 /**
- * 무장기 컷인 — HUD 씬(화면 좌표)에 띄운다. 약 1.5초 뒤 스스로 지운다.
+ * 무장기 컷인 — HUD 씬(화면 좌표)에 띄운다. 끝나면 스스로 지운다(누수 없음).
+ * (3차, BATTLE_V3.md §3.3) 띠 + 초상 슬라이드였던 본문을 cutin.js 의 다섯 박자 컷신으로 바꿨다 — 제작자 피드백 「컷신이 안 이쁘다」.
+ *   내보내는 이름·인자는 그대로라 BattleHud 는 안 고쳐도 돈다. 돌려주는 값만 새로 생겼다(전엔 undefined).
  * @param {Phaser.Scene} scene  BattleHud
- * @param {{name?:string, skillName?:string, key?:string|null, color?:number}} opts
- *        key: 초상 텍스처 키(cutin_<id>). 없거나 텍스처가 없으면 붓글씨만.
+ * @param {{name?:string, skillName?:string, key?:string|null, color?:number, side?:string, mode?:string, onImpact?:Function, onDone?:Function}} opts
+ *        key: 초상 텍스처 키(cutin_<id>). 없거나 텍스처가 없으면 패널 + 붓글씨만. 눈 띠는 cutin_<id>_eyes(없으면 그 박자를 건너뛴다).
+ *        side: 'right' 면 좌우 반전(BattleHud 가 side: meta.side 를 넘긴다). 없으면 아군('left')으로 본다.
+ *              (검수 수정) 전엔 side 가 없을 때 색(0x9cc0ff)으로 편을 짐작했다 — HUD 색이 바뀌면 조용히 틀리는 폴백이라 뺐다.
+ *        mode: 'full'|'short'|'off' — 없으면 registry 'cutinMode'(기본 'full') + 「1.6초 안 연달아 = short」 규칙.
+ * @returns {{mode:string, duration:number, fireAt:number, impactAt:number, active:boolean, done:Promise, cancel:Function}}
+ *        duration = 컷신 길이(ms, 실시간) · impactAt = 전장 복귀 시각(이때 onImpact) · done = 끝(또는 취소) 때 풀리는 Promise
  */
-export function cutin(scene, { name = '', skillName = '', key = null, color = 0xffd24a } = {}) {
-  const W = scene.scale.width, H = scene.scale.height;
-  const D = 900;
-  const T = scene.tweens;
-  const objs = [];
-  const hasImg = !!(key && scene.textures.exists(key));
-  const hex = '#' + color.toString(16).padStart(6, '0');
-
-  // 흰 플래시 — 전장은 BattleScene 카메라 flash 가 번쩍이고, 이건 HUD 위까지 덮는 한 장(0.16초)
-  const flash = scene.add.rectangle(W / 2, H / 2, W, H, 0xffffff, 1).setDepth(D + 5).setAlpha(0.75);
-  objs.push(flash);
-  T.add({ targets: flash, alpha: 0, duration: 160, ease: 'Quad.easeOut' });
-
-  // 집중선 — 화면 전체에 ADD 로 깔고 천천히 돌리며(−5°→5°) 밀려 나온다(배율 ×1.12). 화면을 덮는 배율 × 1.2 —
-  //   납품 그림은 가장자리 10px 이 검게 페이드돼 있어 돌 때 모서리에 그림 끝이 걸려도 선이 그냥 옅어질 뿐 경계가 안 보인다.
-  //   (대각선까지 덮게 3배로 키우면 선이 뭉개지고 화면이 하얗게 뜬다)
-  if (scene.textures.exists('fx_speedlines')) {
-    const k = Math.max(W / 1024, H / 512) * 1.2;
-    const sl = scene.add.image(W / 2, H / 2, 'fx_speedlines').setBlendMode(Phaser.BlendModes.ADD)
-      .setDepth(D + 0.5).setAlpha(0).setScale(k).setAngle(-5);
-    objs.push(sl);
-    T.add({ targets: sl, alpha: 0.5, duration: 120 });
-    T.add({ targets: sl, angle: 5, scale: k * 1.12, duration: 1500 });
-    T.add({ targets: sl, alpha: 0, duration: 220, delay: 1200 });
-  }
-
-  // 어두운 띠 + 세력색 선 두 줄 (위아래로 펼쳐진다)
-  const band = scene.add.rectangle(W / 2, H / 2, W, 250, 0x000000, 0.6).setDepth(D).setScale(1, 0);
-  const lineTop = scene.add.rectangle(W / 2, H / 2 - 125, W, 3, color, 0.9).setDepth(D).setAlpha(0);
-  const lineBot = scene.add.rectangle(W / 2, H / 2 + 125, W, 3, color, 0.9).setDepth(D).setAlpha(0);
-  objs.push(band, lineTop, lineBot);
-  T.add({ targets: band, scaleY: 1, duration: 120, ease: 'Quad.easeOut' });
-  T.add({ targets: [lineTop, lineBot], alpha: 1, duration: 120 });
-
-  const fromX = W + 360;
-  const toX = -460;
-  if (hasImg) {
-    // 초상: 오른쪽 밖 → 화면 오른쪽 60% 지점(0.7초) → 잠깐 머문 뒤 왼쪽 밖으로
-    const img = scene.add.image(fromX, H / 2 + 40, key).setDepth(D + 1);
-    const sc = Math.min(680 / Math.max(1, img.height), 0.9);
-    img.setScale(sc);
-    objs.push(img);
-    T.add({ targets: img, x: W * 0.64, duration: 700, ease: 'Cubic.easeOut' });
-    T.add({ targets: img, x: toX, duration: 420, delay: 1050, ease: 'Cubic.easeIn' });
-  }
-
-  // 이름·무장기 이름 붓글씨 — 초상이 있으면 왼쪽에서, 없으면 오른쪽에서 들어온다
-  const nameSize = hasImg ? '96px' : '128px';
-  const nx = hasImg ? -360 : fromX;
-  const midX = hasImg ? W * 0.28 : W / 2;
-  const nameT = scene.add.text(nx, H / 2 - 34, name, {
-    fontFamily: FONT_BRUSH, fontSize: nameSize, color: '#fff3d6', stroke: '#3a1a0c', strokeThickness: 8,
-  }).setOrigin(0.5).setDepth(D + 2);
-  nameT.setShadow(4, 6, 'rgba(0,0,0,0.7)', 12, true, true);
-  const skillT = scene.add.text(nx, H / 2 + 62, skillName, {
-    fontFamily: FONT_BRUSH, fontSize: '58px', color: hex, stroke: '#2a1a0c', strokeThickness: 6,
-  }).setOrigin(0.5).setDepth(D + 2);
-  objs.push(nameT, skillT);
-  T.add({ targets: [nameT, skillT], x: midX, duration: 700, ease: 'Cubic.easeOut' });
-  T.add({ targets: [nameT, skillT], x: hasImg ? fromX : toX, duration: 420, delay: 1050, ease: 'Cubic.easeIn' });
-
-  // 띠는 마지막에 접힌다
-  T.add({
-    targets: [band, lineTop, lineBot], alpha: 0, duration: 200, delay: 1300,
-    onComplete: () => { for (const o of objs) o.destroy(); },
-  });
+export function cutin(scene, { name = '', skillName = '', key = null, color = 0xffd24a, ...more } = {}) {
+  const side = more.side === 'right' ? 'right' : 'left';
+  return playCutin(scene, { ...more, name, skillName, key, color, side });
 }
 
 export default Fx;

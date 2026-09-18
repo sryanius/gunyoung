@@ -144,3 +144,46 @@ seed 계열 21~31, 같은 골격·같은 cfg 5·steps 28·euler_ancestral. 후�
 - 24장 전수 실측(`assets/raw/battle2/_integ_measure.py`): 전부 128×160 RGBA, 알파>32 bbox 아래 = y152, 알파>128 바닥도 y152 → origin (0.5, 0.95) 그대로.
 - **`BattleScene.U2_ANCHOR`** [stand, attack] = 그림에서 「몸 중심 열」(128px 기준): inf 62/50 · spear 62/47 · bow 61/64 · cav 64/64 · guanyu 72/66 · zhangfei 57/51 · xiahoudun 66/52 · dianwei 75/60. 코드는 이 열이 `u.x`(그림자·발밑 링) 위에 오게 스프라이트를 민다 — attack 은 앞발이 stand 자리에 남고 뒷발이 뒤로 뻗는 자세라 몸통이 8~15px 뒤에 있어, 가운데(64) 기준으로만 두면 교체 순간 몸이 뒤로 튀었다. 재는 법: `_integ_feet.py`(아래 7행의 발 덩어리 + y60~125 몸통 무게중심) → 기준선 시트 `_integ_anchor_sheet.png` 로 눈 보정(전위 stand 는 뒤로 든 도끼 때문에 무게중심 71 보다 몸이 앞 — 75). **그림을 다시 뽑으면 이 표도 다시 재라**(smoke 는 표에 키가 있는지만 본다).
 - 배율: 병사·기병 0.36(47·54px), 무장 0.46 → **0.5**(72px) — `assets/raw/battle2/preview.png` 에서 무장이 난전에 묻혀서.
+
+## 3차 — 여성 무장 8장 (2026-09-19, docs/BATTLE_V3.md §3.2)
+
+`gen_<guanyu|zhangfei|xiahoudun|dianwei>_<stand|attack>.png` 8장을 여성으로 교체(병사 16장은 그대로). 규격 그대로: 128×160 RGBA·오른쪽 보기·발끝 y152·stand 몸 높이 145~146. 기존 남성 8장은 `assets/raw/battle/male_v2/units2/`. 작업 폴더 `assets/raw/battle3/units/`(cand·q·m·out), 시트 `assets/raw/battle3/units_sheet.png`(3배), 게임 배율 목업 `units/_mock_scale.png`, 기준선 시트 `units/_anchor_sheet.png`.
+**수위**: 전장 유닛은 SD 등신(치비)이라 **노출 없이 갑옷·전포**(BATTLE_V3.md §3.1). `gen_unit.sh` 부정에 `nsfw, explicit, nude, nipples, see-through, torn clothes, sex, cleavage, midriff, navel, bikini, swimsuit, bare legs, underwear, panties, school uniform` 이 박혀 있고 등급 태그는 `general`. 8장 모두 긴 옷·전신 갑옷.
+
+### 순서 (위 「만드는 순서」와 같다 — 다른 점만)
+1. **SDXL stand** `raw/battle3/batch_units1.sh`(seed 71~78 × 4명, 832×1216). 골격 `chibi, big head, short legs, 1girl, solo, full body, standing, profile, from side, facing to the right, looking to the side` + 아래 태그 + `simple background, <색> background`. 부정은 units2 공통 + `helmet, hat`(컷인·초상이 맨머리라 — 2차의 「하후돈 고깔 투구 ≠ 초상」 should 해소) + 위 수위 부정.
+2. **오른쪽 보기로 + 덧대기** `units/padflip.py <src> q/in_<key>_stand.png --flip`: 채택 네 장이 전부 왼쪽 보기라 뒤집고, 좌우에 배경색을 덧대 1040×1216(= 383:448). 잘린 무기(하후돈 칼·전위 도끼)를 Qwen 이 이어 그릴 자리도 된다.
+3. **Qwen stand 고치기** `batch_qstand.sh 1` → `q/gen_<key>_stand_s1.png`(944×1104). 관우만 한 번 더(아래).
+4. `post_units.sh` — stand 키잉(`u2post.py key`, 관우 thr 22·나머지 40) → `fit --h=146` → (`flat`) → attack `unflat`(배치 유지) → `u2fix.py clean` → units2/ 로 복사. 다시 돌려 8장이 바이트 단위로 같음을 확인.
+5. **Qwen attack** `batch_qattack.sh 1`(장비 채택) · `batch_qattack2.sh`(seed 2·3: 관우 s2 · 하후돈 s3 · 전위 s3 채택).
+
+| 유닛 | SDXL 채택 | 유닛 태그 | 배경 | Qwen stand 지시(꼬리 = Keep the character, face, hair, outfit, colors, size, position and chibi art style exactly the same. Keep the plain flat background.) |
+|---|---|---|---|---|
+| gen_guanyu | `gen_guanyu_s74` | `guan yu, three kingdoms, very long hair, black hair, straight hair, green eyes, gold hair ornament, green armor, green robe, long green skirt, gold trim, green cape, pauldrons, gauntlets, holding polearm, guandao, crescent blade, boots` | blue → (135,202,196) | s1: Remove the golden crescent ring floating above her head. Replace her thin golden staff with a guandao: a polearm with a dark green shaft and a large silver crescent blade with gold fittings at its top end, held upright … → 날이 머리 위로 솟아 몸이 135px 로 줄었다 → **stand3 s1**(s1 결과에 다시): Tilt the polearm forward: she holds the single guandao diagonally in front of her with both hands, the shaft end near her feet and the crescent blade pointing forward to the right at the height of her face. The blade must not be higher than the top of her head. There is only one weapon in the image. |
+| gen_zhangfei | `gen_zhangfei_s73` | `zhang fei, three kingdoms, black hair, high ponytail, messy hair, red eyes, grin, fang, red armor, black armor, black pants, pauldrons, gauntlets, red waist cape, holding spear, red spear, long spear, polearm, armored boots` | blue → (66,95,138) | Make her stand firmly with both feet flat on the ground, legs straight, body and face still in side view turned to the right. She holds the black spear with the red spearhead diagonally in front of her, the spearhead pointing forward and up but not higher than the top of her head. (원본은 뛰는 자세) |
+| gen_xiahoudun | `gen_xiahoudun_s75` | `xiahou dun, three kingdoms, eyepatch, black eyepatch, dark blue hair, short hair, blue eyes, serious, blue armor, blue cape, pauldrons, gauntlets, armored skirt, blue pants, holding sword, huge sword, broadsword, dao, armored boots` | green → (126,214,196) | Make the huge broad sword shorter so that the entire blade is visible inside the image and the sword tip does not touch the image edge. She holds the sword with the blade pointing down and backward. The black eyepatch stays on the same eye. |
+| gen_dianwei | `gen_dianwei_s72` | `dian wei, three kingdoms, very short hair, black hair, tomboy, dark skin, yellow eyes, serious, black armor, dark armor, blue sash, blue waist cloth, pauldrons, gauntlets, black pants, dual wielding, holding axe, battle axe, halberd, armored boots` | green → (108,183,186) | Complete the axe that is cut off at the image edge so that both axes are fully visible inside the image. She holds one axe in each hand, blades down. |
+
+attack 지시문(꼬리 KEEP 은 위 표와 같다): 관우 s2 «… powerful slashing attack pose toward the right, the crescent blade in front of her on the right side. **The blade stays plain silver-white metal with no pink or purple reflection.** Her body and face stay turned to the right.» · 장비 s1 «thrust the spear forward to the right in a fierce attack pose, lunging with both hands on the spear, the spear held level and pointing to the right, shouting with her mouth open. She stays in side view, face turned to the right.» · 하후돈 s3 «… she lunges to the right and the sword blade points forward to the right side of the image, extended in front of her face. **The sword must not point to the left.** … the black eyepatch stays on her visible eye.» · 전위 s3 «… she holds one axe in each hand, the front axe slashing forward to the right and the other axe raised above her head behind her. **Both axes must be visible.** …»
+
+### 수치 (128×160 좌표, `u2post.py measure` · `u2fix.py measure`)
+| 파일 | 알파 bbox | 머리끝 y | 몸 높이 | 폭 | 발 중심 x |
+|---|---|---|---|---|---|
+| `gen_guanyu_stand` / `attack` | 1,4–128,152 / 0,17–128,152 | 6 / 18 | 146 / 134 | 127 / 128 | 54 / 48 |
+| `gen_zhangfei_stand` / `attack` | 0,3–120,152 / 0,15–128,152 | 6 / 18 | 146 / 134 | 120 / 128 | 69 / 47 |
+| `gen_xiahoudun_stand` / `attack` | 2,5–110,152 / 0,28–128,152 | 7 / 29 | 145 / 123 | 108 / 128 | 62 / 48 |
+| `gen_dianwei_stand` / `attack` | 7,4–113,152 / 6,8–118,152 | 7 / 10 | 145 / 142 | 106 / 112 | 64 / 54 |
+
+- 8장 전부 발끝 y152·알파 0 RGB 0·자홍 잔여 0·조각(알파>0/>64) 1. 방향: 8장 모두 코·턱이 오른쪽, 귀·뒷머리(장비 포니테일·하후돈 망토·관우 긴 머리)가 왼쪽, 장화 코 오른쪽(`units_sheet.png` 3배로 확인). 하후돈 안대는 stand·attack 둘 다 「보이는 쪽 눈」.
+- attack 에서 장비 9px·관우 4px·하후돈 4px 이 **왼쪽 변에서 잘린다**(창 자루 끝·언월도 자루 끝·망토 끝 — 2차와 같은 처리).
+- 하후돈 attack 은 깊이 숙여 머리끝이 22px 내려간다(2차 남성판은 11px).
+- **`BattleScene.U2_ANCHOR` 를 다시 맞춰야 한다**(그림이 바뀌면 다시 재라던 표. art 갈래는 src 를 못 고친다 → 통합 담당): `units/anchor.py` 로 몸통 띠(y100~130) 가장 긴 구간 가운데를 재고 기준선 시트(`_anchor_sheet.png`)로 눈 보정한 값 — `gen_guanyu: [60, 56], gen_zhangfei: [60, 48], gen_xiahoudun: [60, 50], gen_dianwei: [53, 49]` (지금 값 [72,66]·[57,51]·[66,52]·[75,60] 은 남성판 기준이라 관우·전위가 발밑 링에서 12~22px(화면 6~11px) 앞으로 비껴 선다).
+  - **(통합 2026-09-19) 실제로 넣은 값은 `[68,61]·[62,49]·[67,51]·[53,50]`** — 위 제안은 관우의 바닥까지 끄는 머리, 하후돈의 망토·뒤로 든 대도가 「가장 긴 불투명 구간」에 붙어 stand 가 8px 뒤로 쏠려 있었다. 8px 격자 시트(`assets/raw/battle3/units/_integ_grid_0·1.png`)로 몸통·두 발을 읽고 색으로 확인(관우 녹색 옷 y70~120 평균 열 66.7, 하후돈 다리 y132~150 가운데 67.5). 장비·전위는 제안과 ±2. docs/HANDOFF.md §9.9.
+
+### 실패 기록 (3차)
+- 관우 «held upright» 은 날이 머리 위로 솟아 fit 이 몸을 135px 로 줄인다. «Make the polearm shorter …» 는 **땅에 무기를 한 자루 더** 그린다(stand2 s1·s2) → «Tilt the polearm forward … There is only one weapon in the image.» 로 해결. 대신 얼굴이 3/4 로 돌았다(오른쪽 보기는 유지, attack 도 같은 3/4).
+- 자홍 배경에서 Qwen 이 은빛 날을 **자홍 그라데이션**으로 칠한다(관우 attack s1 — 키잉에 뚫린다) → «The blade stays plain silver-white metal with no pink or purple reflection.»
+- 하후돈 attack s1 은 칼을 등 뒤(왼쪽)로 뻗는다 → «The sword must not point to the left.» s2 는 안대가 눈 그늘처럼 뭉개졌고 s3 채택.
+- 전위 attack s1 은 도끼 한 자루가 사라진다 → «one axe in each hand … Both axes must be visible.»
+- 은빛 날은 청록 배경과 거리 55 → stand 키잉 thr 40 이면 날이 반투명(갈색으로 비친다) → 관우만 `--thr=22 --ramp=18`.
+- `dian wei + very short hair + tomboy` 치비는 소년처럼 읽힌다(컷인·초상과 머리·피부·갑옷·쌍도끼가 같아 같은 인물로는 읽힌다) — 거슬리면 Qwen 으로 속눈썹·귀걸이를 더한다.

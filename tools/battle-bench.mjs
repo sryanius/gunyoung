@@ -9,6 +9,7 @@
 //
 // 기준(하나라도 어긋나면 exit 1):
 //   전부 종료(승패) · 평균 종료 60~120초 · 틱 평균 ≤2ms · 틱 p99.9 ≤8ms · 양쪽 다 이긴 적 있음 · 결정성(같은 seed 두 번 = 같은 hp 합·x 합)
+//   · setPlayer 시나리오(3차: 10초에 장비로 교체 → 20초에 자동 — 교체 계약·공격자 자리 장부·종료·결정성, 늘 돈다)
 //   틱 최대는 첫 틱 JIT 워밍업(~3ms)과 OS/GC 튐(한 번 10ms 가 나왔다 — 같은 seed 재실행에서는 2.7ms)이 섞이므로
 //   표에 보여 주되 판정은 p99.9 로 하고, 원 최대가 8ms 를 넘으면 WARN 만 찍는다.
 
@@ -143,6 +144,76 @@ failIf(lw === 0 || rw === 0, `한쪽이 한 판도 못 이김 (L${lw} R${rw})`);
   const gens = [...b.generalsOf('left'), ...b.generalsOf('right')].map((g) => `${g.side === 'left' ? 'L' : 'R'}${g.x | 0}`).join(' ');
   console.log(`== 후퇴 (seed ${SEEDS[0]}, 20초 돌격 → 후퇴 40초): 살아 있는 ${alive}, 벽에 붙은 ${wall}, 무장 x ${gens}`);
   failIf(wall > 0, `후퇴 진형이 벽에 쌓임 (${wall}명)`);
+}
+
+// ─────────────────────────────────────────────────────────────
+// setPlayer 시나리오(3차 — docs/BATTLE_V3.md §1): 관우 조종 10초 → 10초에 장비로 교체 → 20초에 자동(null) → 끝까지.
+//   조종 중인 무장은 --player 와 같은 방식(가장 가까운 적 무장 쪽, 70px 안이면 멈춤)으로 민다. 같은 호출 열을 두 번 돌려 결정성을 본다.
+//   보는 것: 교체 직후 playerOf·ai·입력 0, 교체 뒤 놓인 무장(관우)이 AI 로 스스로 움직이는가, 죽은 무장·남의 편 id 거절,
+//            attackers(공격자 자리) 장부가 음수로 새지 않는가, 자동으로 둔 뒤에도 판이 끝나는가.
+// ─────────────────────────────────────────────────────────────
+
+{
+  const runSwitch = (seed) => {
+    const b = createBattle({ seed, left: ARMY_LEFT, right: ARMY_RIGHT });
+    b.command('left', 'charge'); b.command('right', 'charge');
+    const [g0, g1] = b.generalsOf('left');
+    const enemy = b.generalsOf('right')[0];
+    const notes = [];
+    const bad = [];
+    const drive = (me) => {
+      const gens = b.generalsOf('right').filter((g) => g.alive);
+      let dx = 1, dy = 0;
+      if (gens.length) {
+        const g = gens.reduce((a, c) => (Math.hypot(c.x - me.x, c.y - me.y) < Math.hypot(a.x - me.x, a.y - me.y) ? c : a));
+        const ex = g.x - me.x, ey = g.y - me.y, d = Math.hypot(ex, ey) || 1;
+        if (d < 70) { dx = 0; dy = 0; } else { dx = ex / d; dy = ey / d; }
+      }
+      b.setGeneralInput('left', me.id, { dx, dy });
+    };
+    const t10 = Math.round(10000 / TICK_MS), t20 = Math.round(20000 / TICK_MS), tEnd = Math.round(SECS * 1000 / TICK_MS);
+    let g0x20 = 0, negAttackers = 0;
+    for (let i = 0; i < tEnd; i++) {
+      if (i === t10) {
+        if (typeof b.setPlayer !== 'function') { bad.push('sim 에 setPlayer 가 없음'); break; }
+        if (b.setPlayer('left', enemy.id) !== false) bad.push('남의 편 무장 id 를 거절하지 않음');
+        if (b.setPlayer('left', 9999) !== false) bad.push('없는 id 를 거절하지 않음');
+        const okSwitch = b.setPlayer('left', g1.id);
+        const p = b.playerOf('left');
+        if (!okSwitch || p !== g1) bad.push('10초 교체 뒤 playerOf 가 장비가 아님');
+        if (g0.ai !== true || g1.ai !== false || g0.inX !== 0 || g0.inY !== 0) bad.push('교체 뒤 관우 ai/입력 또는 장비 ai 가 안 바뀜');
+        notes.push(`10s 교체 ${g0.name}(${g0.x | 0},${g0.y | 0}) → ${g1.name}(${g1.x | 0},${g1.y | 0})`);
+        g0x20 = g0.x;
+      }
+      if (i === t20) {
+        const moved = Math.abs(g0.x - g0x20);
+        if (g0.alive && moved < 1 && g0.state === 'idle' && g0.tgt < 0) bad.push('놓인 관우가 AI 로 안 움직임');
+        if (b.setPlayer('left', null) !== true || b.playerOf('left') !== null) bad.push('20초 자동(null) 뒤 playerOf 가 null 이 아님');
+        if (g1.alive && g1.ai !== true) bad.push('자동 뒤 장비가 AI 가 아님');
+        notes.push(`20s 자동 (관우 10초간 AI 이동 ${moved | 0}px)`);
+      }
+      const p = b.playerOf('left');
+      if (p && p.alive) drive(p);
+      b.step(TICK_MS);
+      b.drainEvents();
+      if (i % 30 === 0) for (const u of b.units) if (u.attackers < 0) negAttackers++;
+      if (b.result) break;
+    }
+    // 죽은 무장은 조종 대상으로 못 고른다
+    const dead = [...b.generalsOf('left'), ...b.generalsOf('right')].find((g) => !g.alive);
+    if (dead && b.setPlayer(dead.side, dead.id) !== false) bad.push('죽은 무장 id 를 거절하지 않음');
+    if (negAttackers) bad.push(`attackers 음수 ${negAttackers}회(공격자 자리 장부 샘)`);
+    if (!b.result) bad.push('자동으로 둔 판이 안 끝남');
+    return { b, notes, bad };
+  };
+  const a = runSwitch(SEEDS[0]), c = runSwitch(SEEDS[0]);
+  const ka = checksum(a.b), kc = checksum(c.b);
+  const same = ka.hp === kc.hp && ka.x === kc.x && a.b.time === c.b.time && JSON.stringify(a.b.result) === JSON.stringify(c.b.result);
+  const res = a.b.result;
+  console.log(`== setPlayer (seed ${SEEDS[0]}: ${a.notes.join(' → ')}) → ${res ? `${(res.time / 1000).toFixed(1)}s ${res.winner} L${a.b.countAlive('left')} R${a.b.countAlive('right')}` : '미종료'}`
+    + ` · 두 번 hp 합 ${ka.hp} / ${kc.hp}, x 합 ${ka.x} / ${kc.x} → ${same ? '같음' : '다름!'}`);
+  for (const m of a.bad) fails.push(`setPlayer: ${m}`);
+  failIf(!same, 'setPlayer 시나리오 결정성 깨짐');
 }
 
 // ─────────────────────────────────────────────────────────────

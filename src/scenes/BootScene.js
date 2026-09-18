@@ -126,7 +126,18 @@ export const BATTLE2_ASSETS = [
   ['hud_skill_guanyu',          'battle/hud/skill_guanyu.png',              64, 64, false],      // 메달리온 구멍 안에 깔린다(모서리는 테에 가린다)
   ['hud_skill_zhangfei',        'battle/hud/skill_zhangfei.png',            64, 64, false],
 ];
-const BATTLE_KEYS = new Set([...BATTLE_ASSETS, ...BATTLE2_ASSETS].map((a) => a[0]));
+/**
+ * BATTLE_V3.md §3.2 — 컷신 눈 클로즈업 띠(전부 선택). [키, 경로, 폭, 높이, 알파 필요]. 키 = cutin_<무장 key>_eyes.
+ *   1024×256 RGB(알파 없음 — 좌우 페이드는 battle/cutin.js 가 한다). 없으면 loaderror → registry 'missingBattle' 에 키를 남기고
+ *   컷신은 첫 박자(눈 띠)를 건너뛴다. BATTLE_ASSETS 에 안 넣고 따로 둔 까닭: smoke 가 그 표의 battle/cutin/*.png 에는 알파 채널을 요구한다.
+ */
+export const BATTLE3_ASSETS = [
+  ['cutin_guanyu_eyes',     'battle/cutin/guanyu_eyes.png',     1024, 256, false],
+  ['cutin_zhangfei_eyes',   'battle/cutin/zhangfei_eyes.png',   1024, 256, false],
+  ['cutin_xiahoudun_eyes',  'battle/cutin/xiahoudun_eyes.png',  1024, 256, false],
+  ['cutin_dianwei_eyes',    'battle/cutin/dianwei_eyes.png',    1024, 256, false],
+];
+const BATTLE_KEYS = new Set([...BATTLE_ASSETS, ...BATTLE2_ASSETS, ...BATTLE3_ASSETS].map((a) => a[0]));
 const BATTLE2_KEYS = new Set(BATTLE2_ASSETS.map((a) => a[0]));
 
 /** 결정적 난수(자리표시 그림이 매번 같게) */
@@ -181,6 +192,7 @@ export default class BootScene extends Phaser.Scene {
     for (const [key, path] of ASSETS) this.load.image(key, path);
     for (const [key, path] of BATTLE_ASSETS) this.load.image(key, path);
     for (const [key, path] of BATTLE2_ASSETS) this.load.image(key, path);
+    for (const [key, path] of BATTLE3_ASSETS) this.load.image(key, path);   // (3차) 컷신 눈 띠 — 없으면 loaderror → missingBattle
 
     // 진행 바 — 폰트가 아직 없으니 글자는 그리지 않는다
     // 컨테이너에 넣어 로딩 중 창 비율이 바뀌어도(main.js relayout → RESIZE) 가운데를 지킨다
@@ -209,6 +221,7 @@ export default class BootScene extends Phaser.Scene {
 
     // 전투(BATTLE.md §4.1): 선택 에셋이 없으면 배경은 캔버스 폴백, 병종·무장 실루엣은 늘 코드로 만든다
     for (const [key] of BATTLE_ASSETS) if (!this.textures.exists(key)) this.missingBattle.add(key);
+    for (const [key] of BATTLE3_ASSETS) if (!this.textures.exists(key)) this.missingBattle.add(key);   // (3차) 눈 띠도 같은 방식 — 자리표시는 안 만든다(컷신이 그 박자를 건너뛴다)
     const missingBattle = [...this.missingBattle];
     this.registry.set('missingBattle', missingBattle);
     if (missingBattle.length) console.info('[군영전] 전투 선택 에셋 없음(코드 폴백):', missingBattle.join(', '));

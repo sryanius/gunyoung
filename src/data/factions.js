@@ -92,6 +92,8 @@ export const KOREAN_SAMPLE = [
   '관우장비하후돈전위청룡참포효맹공쌍극',
   // sim.js REASON 문구(결과 패널 사유)·전투 시작 실패 토스트 — smoke 가 sim.js 도 대조한다(통합)
   '남은병력비율양쪽동시궤멸시간초과전투를시작할수없습니다',
+  // 전투 3차(docs/BATTLE_V3.md §1) — HUD 「자동/수동」 버튼·초상 꼬리표 「조종」 ('종' 이 표본에 없었다)
+  '자동수동조종',
 ].join('');
 // ※ UIScene/MapScene 에 문구를 더하면 여기에도 그 글자를 넣어라 — tools/smoke.mjs 가 대조한다.
 

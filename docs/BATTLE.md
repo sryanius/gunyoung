@@ -53,6 +53,10 @@ b.playerOf(side);      // 플레이어 조종 무장 Unit | null
 b.skillCount;          // { left, right } 무장기 발동 횟수(결과 패널)
 b.unitById(id); b.commandOf(side); b.countInitial(side); b.sides; b.tick; TICK_MS(export, 16.667)
 b.result.time;         // 종료 시각 ms(결과 패널 「걸린 시간」). result 가 난 뒤에도 step 은 계속 돈다(end 이벤트는 한 번, result 고정)
+b.setPlayer(side, generalId | null);   // (3차, docs/BATTLE_V3.md §1) 조종 무장 교체 / null = 전원 AI(자동). 이전 조종 무장은 AI 로 돌아가고 입력 벡터 0.
+                       //   죽은 무장·남의 편·없는 id 면 false(아무것도 안 바뀜). 난수를 안 쓴다 — 같은 seed·같은 호출 열이면 같은 결과.
+                       //   ※ 조종 무장이 죽었을 때의 자동 전환은 sim 이 아니라 view(BattleScene.checkPlayerAlive)가 한다 — sim 만 쓰는 쪽(벤치 등)에서는
+                       //     playerOf(side) 가 죽은 무장을 그대로 돌려줄 수 있고, 그 편은 aiCommands 의 자동 「돌격」도 안 걸린다.
 ```
 시간: `step(dt)` 는 누적기로 TICK_MS 단위 고정 틱을 돌린다(step(50) = 3틱) — 프레임 속도와 무관하게 결정적. view 는 delta 를 ≤50ms×≤4 로 쪼개 부른다.
 
@@ -149,4 +153,7 @@ type Event =
 - `node tools/battle-bench.mjs [--seeds=a-b] [--player] [--verbose] [--secs=N]` : seed 1~5 로 AI vs AI(양쪽 돌격) 를 180초 굴려 — 전부 종료(승패), 평균 종료 60~120초, 틱당 평균 ≤2ms·p99.9 ≤8ms(원 최대는 첫 틱 JIT·GC 튐이 섞여 WARN 만), 양쪽 다 이긴 적 있음, 결정성(같은 seed 두 번 = 같은 hp 합·x 합), 후퇴 시나리오(벽에 쌓인 병사 0). `--player` 는 관우를 30초 조작해 무장기 적중·즉사를 본다. 기준 미달이면 exit 1.
 - `node tools/smoke.mjs` : battle 파일 import·sim 계약·HUD 9-slice·선택 에셋 크기·FIELD 일치·폰트 표본(sim.js 문구 포함) 검사.
 - `node assets/raw/battle/view-check.mjs` : Phaser 를 흉내 내고 진짜 sim 을 붙여 BattleScene·BattleHud·fx 를 create → 인트로 → 입력 → 병법 → 무장기 → 종료 → 결과 → relayout → 지도로 순서로 밟는다(그림은 못 본다).
+- (3차) 벤치에 setPlayer 시나리오(10초에 장비로 교체 → 20초에 자동, 같은 호출 열 두 번 = 같은 결과)가 늘 돈다. 화면 쪽 헤드리스 점검:
+  `node assets/raw/battle3/control/control-check.mjs [--art]`(조종 선택·자동/수동·배속) · `node assets/raw/battle3/integ/integ-probe.mjs [--art]`(컷신+배속+자동을 seed 5개로 끝까지)
+  · `python assets/raw/battle3/cutin_preview.py [폭]`(컷신 합성 미리보기) · `python assets/raw/battle3/control/hud_mock.py`(HUD 상자 목업). 파이썬은 `C:\pinokio\api\inteliweb-comfyui\app\env\Scripts\python.exe`(PATH 의 python 은 스토어 스텁).
 - 브라우저: 폰 가로(844×390)에서 60fps 근처(`game.loop.actualFps` ≥ 50), 조이스틱·무장기·병법·결과·지도 복귀 — docs/HANDOFF.md §9.

@@ -4,6 +4,7 @@
 //   open  : 패널 열림 「스윽」(위로 쓸리는 소리)
 //   close : 패널 닫힘 (아래로 쓸리는 소리)
 //   hit   : 전투 타격 「퍽」 / skill : 무장기 발동 (BATTLE.md §4 — BattleScene 이 쓴다)
+//   cut_eye : 컷신 눈 띠 「슥」 / cut_stamp : 붓글씨가 찍히는 「쿵」 / cut_flash : 컷신 발동 「챙—쾅」 (BATTLE_V3.md §3.3 — battle/cutin.js 가 쓴다)
 // AudioContext 는 첫 사용자 입력(pointerdown) 뒤에 만들고, suspended 면 resume 한다.
 
 let ctx = null;
@@ -104,6 +105,21 @@ export function play(name) {
         tone(c, { type: 'sawtooth', f0: 110, f1: 55, dur: 0.45, gain: 0.16, attack: 0.01 });
         swoosh(c, { f0: 200, f1: 3000, dur: 0.35, gain: 0.14, q: 1.0 });
         tone(c, { type: 'sine', f0: 880, f1: 1320, dur: 0.3, gain: 0.07, delay: 0.08 });
+        break;
+      // ── 무장기 컷신(BATTLE_V3.md §3.3) — cutin.js 가 박자에 맞춰 부른다
+      case 'cut_eye':    // 「슥」 — 눈 띠가 화면을 가른다: 빠르게 올라가는 얇은 쓸림 + 칼 뽑는 듯한 높은 음
+        swoosh(c, { f0: 900, f1: 6000, dur: 0.14, gain: 0.16, q: 2.2 });
+        tone(c, { type: 'sine', f0: 2200, f1: 3400, dur: 0.12, gain: 0.05, attack: 0.002 });
+        break;
+      case 'cut_stamp':  // 「쿵」 — 붓글씨 한 글자가 찍힌다: 낮은 북 + 짧은 잡음 (0.05초 간격으로 두세 번 → 「두둥」)
+        tone(c, { type: 'sine', f0: 170, f1: 48, dur: 0.16, gain: 0.3, attack: 0.002 });
+        swoosh(c, { f0: 1400, f1: 300, dur: 0.05, gain: 0.1, q: 0.7 });
+        break;
+      case 'cut_flash':  // 「챙—쾅」 — 발동: 금속성 높은 음 둘(살짝 어긋난 배음) + 내려가는 쓸림 + 낮은 폭음
+        tone(c, { type: 'square', f0: 3200, f1: 2400, dur: 0.22, gain: 0.05, attack: 0.001 });
+        tone(c, { type: 'sine', f0: 2650, f1: 2500, dur: 0.38, gain: 0.07, attack: 0.001 });
+        swoosh(c, { f0: 5000, f1: 300, dur: 0.3, gain: 0.2, q: 0.8 });
+        tone(c, { type: 'sine', f0: 120, f1: 36, dur: 0.42, gain: 0.32, attack: 0.004, delay: 0.03 });
         break;
       default:
         tone(c, { f0: 700, f1: 500, dur: 0.05, gain: 0.15 });

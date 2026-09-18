@@ -81,6 +81,7 @@ export function createBattle(opts = {}) {
     drainEvents,
     command,
     setGeneralInput,
+    setPlayer,
     useSkill,
     generalsOf,
     countAlive,
@@ -273,6 +274,49 @@ export function createBattle(opts = {}) {
     const l2 = dx * dx + dy * dy;
     if (l2 > 1) { const l = Math.sqrt(l2); dx /= l; dy /= l; }
     u.inX = dx; u.inY = dy;
+  }
+
+  /**
+   * (3차 — docs/BATTLE_V3.md §1) 그 편의 조종 무장을 바꾼다. generalId = null 이면 전원 AI(자동).
+   *   바꾸는 순간 이전 조종 무장은 AI 로 돌아가고 양쪽 다 입력 벡터는 0. 죽은 무장·남의 편·병사 id 면 아무것도 안 바꾸고 false.
+   *   aiControlled 옵션(벤치)으로 만든 전투에서도 부를 수 있다 — 옵션은 「처음에 아무도 조종하지 않는다」일 뿐이다.
+   * 결정성: 난수를 쓰지 않고 호출 시점의 상태만 바꾼다 → 같은 seed·같은 호출 순서(어느 틱 사이에 불렀는가) = 같은 결과.
+   *   「조종 무장이 죽으면 다음 무장으로」는 일부러 여기 넣지 않았다(view 가 setPlayer 를 부른다 — BattleScene.checkPlayerAlive).
+   *   sim 이 스스로 바꾸면 입력을 아무도 안 넣는 헤드리스 실행(벤치 --player)에서 둘째 무장이 ai=false 인 채 멍하니 서서
+   *   기존 벤치 수치가 달라지고, 「누가 다음인가·자동이었는가」 같은 화면 정책이 sim 에 섞인다. sim 은 (seed, 호출 열)의 순함수로 둔다.
+   * 참고: 조종 무장이 없는 편은 aiCommands 가 「5초 뒤 돌격」을 건다(사용자가 병법을 한 번도 안 눌렀을 때만) — 자동으로 두고 구경만 해도 싸움이 난다.
+   */
+  function setPlayer(side, generalId) {
+    const S = sides[side];
+    if (!S) return false;
+    let next = -1;
+    if (generalId != null) {
+      const u = units[generalId];
+      if (!u || u.side !== side || u.kind !== 'general' || !u.alive) return false;
+      next = u.id;
+    }
+    if (S.player === next) return true;
+    if (S.player >= 0) {
+      // 이전 조종 무장 → AI. 조종 중엔 목표가 공격자 자리(attackers)를 안 차지했으므로(setTarget 의 melee = u.ai) ai 를 켜기 「전에」 목표를 비운다
+      const p = units[S.player];
+      setTarget(p, -1);
+      p.inX = 0; p.inY = 0;
+      p.ai = true;
+      p.low = false;
+      p.retargetAt = 0;
+      // 「대기」면 AI 무장은 anchor 로 걸어 돌아간다 — 조종하다 놓은 자리를 지키게(안 그러면 명령 내린 옛 자리까지 혼자 걸어간다)
+      p.anchorX = p.x; p.anchorY = p.y;
+    }
+    if (next >= 0) {
+      // 새 조종 무장: AI 때 잡은 목표는 공격자 자리를 차지하고 있다 → ai 를 끄기 「전에」 돌려준다(attackers 가 새면 그 적을 아무도 못 친다)
+      const u = units[next];
+      setTarget(u, -1);
+      u.ai = false;
+      u.inX = 0; u.inY = 0;
+      u.low = false;
+    }
+    S.player = next;
+    return true;
   }
 
   function useSkill(side, generalId) {

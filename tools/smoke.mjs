@@ -146,7 +146,7 @@ const mods = {};
 const BATTLE_OPTIONAL = ['src/battle/data.js', 'src/battle/sim.js'].filter((rel) => existsSync(join(ROOT, rel)));
 const IMPORTS = [
   'src/data/cities.js', 'src/data/factions.js', 'src/sfx.js', 'src/scenes/BootScene.js', 'src/scenes/MapScene.js', 'src/scenes/UIScene.js',
-  'src/battle/fx.js', 'src/battle/BattleScene.js', 'src/battle/BattleHud.js', 'assets/raw/battle/sim-stub.mjs', ...BATTLE_OPTIONAL,
+  'src/battle/fx.js', 'src/battle/cutin.js', 'src/battle/BattleScene.js', 'src/battle/BattleHud.js', 'assets/raw/battle/sim-stub.mjs', ...BATTLE_OPTIONAL,
   'src/main.js',
 ];
 for (const rel of IMPORTS) {
@@ -303,6 +303,32 @@ if (hud && hud.HUD_LAYOUT) {
     const k = L.skill.medallion / 160, lo = L.skill.arcR - L.skill.arcW / 2, hi = L.skill.arcR + L.skill.arcW / 2;
     check(lo >= 36.5 * k && hi <= 51 * k, `게이지 호 ${lo}~${hi}px 가 메달리온 목재 띠 ${(36.5 * k).toFixed(1)}~${(51 * k).toFixed(1)}px 안`);
   }
+  // 3차(docs/BATTLE_V3.md §1·§2): 자동/수동 토글·배속 버튼·초상 선택 꼬리표 — 폰 가로(FIT 0.54) 버튼 ≥ 72px · 글자 ≥ 22px
+  if (L.auto && L.speed && L.sel) {
+    nine('자동/수동 버튼(button)', L.auto.w, L.auto.h, L.auto.corner, DESIGN.button);
+    nine('배속 버튼(button)', L.speed.w, L.speed.h, L.speed.corner, DESIGN.button);
+    check(Math.min(L.auto.w, L.auto.h, L.speed.w, L.speed.h) >= 72, `자동/수동 ${L.auto.w}×${L.auto.h} · 배속 ${L.speed.w}×${L.speed.h} 버튼 ≥ 72px`);
+    const rowW = tacticW + L.auto.gap + L.auto.w;
+    check(rowW + L.bar.margin <= 1280 / 2, `자동 버튼 + 병법 3버튼 줄 폭 ${rowW} 이 화면 오른쪽 반 안(1280 폭에서 왼쪽 끝 x ${1280 - L.bar.margin - rowW} ≥ 640)`);
+    // 배속 버튼(1280 폭 기준): 시간 글자(가운데 ±44)·오른쪽 병력 바·오른쪽 둘째 무장의 이름/HP 바와 안 겹치는가
+    const sx0 = 640 + L.speed.dx - L.speed.w / 2, sx1 = 640 + L.speed.dx + L.speed.w / 2, sy1 = L.speed.y + L.speed.h / 2;
+    check(sx0 >= 640 + 44 + 16, `배속 버튼 왼쪽 끝 x ${sx0} 이 시간 글자(≤684) 오른쪽`);
+    check(sx1 <= 1280 - L.bar.margin - L.bar.w, `배속 버튼 오른쪽 끝 x ${sx1} ≤ 오른쪽 병력 바 왼쪽 끝 ${1280 - L.bar.margin - L.bar.w}`);
+    const gen2TextL = 1280 - (L.bar.margin + L.gen.blockW + L.gen.gap + L.gen.textX) - 60;   // 오른쪽 둘째 무장 이름(오른쪽 정렬, 두세 글자 ≈ 60px)의 왼쪽 끝
+    const gen2BarTop = L.gen.y + L.gen.barDy - L.gen.barH / 2;
+    check(sx1 <= gen2TextL && sy1 <= gen2BarTop, `배속 버튼(~x ${sx1}, ~y ${sy1}) 이 오른쪽 둘째 무장 이름(x ${gen2TextL}~)·HP 바(y ${gen2BarTop}~)와 안 겹침`);
+    check(L.speed.y - L.speed.h / 2 >= 0 && sy1 <= L.gen.y + L.gen.frameH / 2, '배속 버튼이 화면 위 끝~HUD 영역(HUD_TOP) 안');
+    check(L.sel.font >= 22 && L.sel.tagH >= L.sel.font + 6 && L.sel.tagW <= L.gen.portraitW, `초상 꼬리표 글자 ${L.sel.font}px ≥ 22 · 꼬리표 ${L.sel.tagW}×${L.sel.tagH} 가 초상(${L.gen.portraitW}) 안`);
+    check(L.gen.blockW >= 72 && L.gen.frameH >= 72, `초상 탭 영역(블록 ${L.gen.blockW}×${L.gen.frameH}) ≥ 72px`);
+  } else bad('HUD_LAYOUT 에 3차 항목(auto·speed·sel)이 없음');
+  // 3차 글자 크기 — BattleHud 소스의 fontSize 리터럴이 전부 ≥ 22px 인가(템플릿 `${…}px` 는 위 sel.font 로 본다)
+  {
+    const src = readFileSync(join(ROOT, 'src/battle/BattleHud.js'), 'utf8');
+    const sizes = [...src.matchAll(/fontSize:\s*'(\d+)px'/g)].map((m) => Number(m[1]));
+    const calls = [...src.matchAll(/setFontSize\((\d+)\)/g)].map((m) => Number(m[1]));
+    const small = [...sizes, ...calls].filter((n) => n < 22);
+    check(sizes.length > 0 && small.length === 0, `BattleHud 글자 크기 최소 ${Math.min(...sizes, ...calls)}px ≥ 22 (폰 0.54배 → 12px)`);
+  }
 }
 
 section('6) 전투 2차 그림 (BootScene.BATTLE2_ASSETS, BATTLE_ART.md §1~§4) — 전부 선택: 없으면 경고만, 있으면 크기·알파 검사');
@@ -372,7 +398,9 @@ if (boot && Array.isArray(boot.BATTLE_ASSETS)) {
     if (!existsSync(p)) continue;
     const info = imageSize(readFileSync(p));
     if (!info) { bad(`${rel} 이미지 헤더를 못 읽음`); continue; }
-    const want = EXPECT[rel] || (rel.startsWith('battle/units/') ? [96, 128] : null);
+    // (3차 통합) 컷인 주 일러스트는 1248×1824(BATTLE_V3.md §3.2 — SDXL 832×1216 의 1.5배 하이레즈). 크기가 달라도 cutin.js 는 화면 높이 기준으로 맞추지만
+    //   얼굴 위치표(CUTIN_ART.faceU/faceV)는 이 납품본으로 잰 것이라 그림이 바뀌면 여기서 알아채게 한다
+    const want = EXPECT[rel] || (rel.startsWith('battle/units/') ? [96, 128] : rel.startsWith('battle/cutin/') ? [1248, 1824] : null);
     if (want) check(info.w === want[0] && info.h === want[1], `'${key}' ${rel} ${info.w}×${info.h} (계약 ${want[0]}×${want[1]})`);
     else ok(`'${key}' ${rel} ${info.w}×${info.h} 있음`);
     if (/battle\/(far\.png|cutin\/|units\/)/.test(rel)) check(info.alpha, `${rel} 알파 채널`);   // 하늘·땅은 불투명이어도 된다
@@ -381,10 +409,32 @@ if (boot && Array.isArray(boot.BATTLE_ASSETS)) {
   check(new Set(keys).size === keys.length, 'BATTLE_ASSETS 키 중복 없음');
   // 통합: BATTLE.md §5 의 12 파일 중 납품된 10개는 이제 필수(사라지면 실패). 컷인 하후돈·전위는 아직 없어 선택으로 남긴다.
   const paths = new Set(boot.BATTLE_ASSETS.map((a) => a[1]));
-  const REQUIRED = ['battle/sky.png', 'battle/far.png', 'battle/ground.png', 'battle/cutin/guanyu.png', 'battle/cutin/zhangfei.png',
+  //   (3차 통합) 컷인 하후돈·전위도 납품됐다(2차 끝) → 네 장 모두 필수.
+  const REQUIRED = ['battle/sky.png', 'battle/far.png', 'battle/ground.png',
+    ...['guanyu', 'zhangfei', 'xiahoudun', 'dianwei'].map((n) => `battle/cutin/${n}.png`),
     ...['inf', 'spear', 'bow', 'cav', 'general_left', 'general_right'].map((n) => `battle/units/${n}.png`)];
   for (const rel of REQUIRED) check(existsSync(join(ASSET_DIR, rel)) && paths.has(rel), `${rel} 납품됨 + BATTLE_ASSETS 가 로드`);
-  for (const rel of ['battle/cutin/xiahoudun.png', 'battle/cutin/dianwei.png']) check(paths.has(rel), `${rel} (아직 없음 — 오면 자동 로드) BATTLE_ASSETS 에 있음`);
+}
+
+section('6) 전투 3차 에셋 (BootScene.BATTLE3_ASSETS — 컷신 눈 띠) · 컷신 조정표');
+if (boot && Array.isArray(boot.BATTLE3_ASSETS)) {
+  for (const [key, rel, w, h, needAlpha] of boot.BATTLE3_ASSETS) {
+    const p = join(ASSET_DIR, rel);
+    if (!existsSync(p)) { warn(`'${key}' ${rel} 없음 — 컷신이 첫 박자(눈 띠)를 건너뛴다`); continue; }
+    const info = imageSize(readFileSync(p));
+    if (!info) { bad(`${rel} 이미지 헤더를 못 읽음`); continue; }
+    check(info.w === w && info.h === h && (!needAlpha || info.alpha), `'${key}' ${rel} ${info.w}×${info.h} (계약 ${w}×${h})`);
+  }
+  const cutMod = mods['src/battle/cutin.js'];
+  const dataMod3 = mods['src/battle/data.js'];
+  if (cutMod && cutMod.CUTIN_ART && dataMod3 && dataMod3.GENERALS) {
+    const gk = Object.values(dataMod3.GENERALS).map((g) => g.key);
+    const eyeKeys = new Set(boot.BATTLE3_ASSETS.map((a) => a[0]));
+    check(gk.every((k) => cutMod.CUTIN_ART[k] && eyeKeys.has(`cutin_${k}_eyes`)), `무장 key(${gk.join(',')}) 마다 CUTIN_ART 줄 + 눈 띠 키 cutin_<key>_eyes`);
+    check(Object.values(cutMod.CUTIN_ART).every((t) => t.faceU > 0.2 && t.faceU < 0.8 && t.faceV > 0.1 && t.faceV < 0.6
+      && (t.faceIn == null || (t.faceIn >= 0.25 && t.faceIn <= 0.65)) && (t.scale == null || (t.scale >= 0.8 && t.scale <= 1.2))),
+      'CUTIN_ART faceU/faceV·faceIn·scale 이 말이 되는 범위');
+  }
 }
 
 section('6) 전투 파일·상수 일치 (통합)');
@@ -437,6 +487,45 @@ section('6) sim 계약 (BATTLE.md §2.1) — ' + (BATTLE_OPTIONAL.includes('src/
     // 덧붙인 필드(통합에서 view 가 쓰기로 한 것): Unit.key(컷인 파일명)·alive, result.time, playerOf, skillCount
     check(b.generalsOf('left').every((g) => typeof g.key === 'string') && U.every((u) => 'alive' in u), '덧붙인 Unit 필드 key(무장)·alive');
     check(typeof b.playerOf === 'function' && b.skillCount && typeof b.skillCount.left === 'number', '덧붙인 API playerOf·skillCount');
+    // 3차(docs/BATTLE_V3.md §1): setPlayer(side, id|null) — 진짜 sim 에만(더미엔 없다 → view 는 canSwitch=false 로 폴백)
+    if (mods['src/battle/sim.js']) {
+      const s = simMod.createBattle({ seed: 4, left, right });
+      const [g0, g1] = s.generalsOf('left');
+      const eg = s.generalsOf('right')[0];
+      check(typeof s.setPlayer === 'function', 'sim.setPlayer 존재');
+      if (typeof s.setPlayer === 'function') {
+        check(s.playerOf('left') === g0, `처음 조종 무장 = ${g0.name}`);
+        s.setGeneralInput('left', g0.id, { dx: 1, dy: 0 });
+        check(s.setPlayer('left', g1.id) === true && s.playerOf('left') === g1, `setPlayer(left, ${g1.name}) → playerOf = ${g1.name}`);
+        check(g0.inX === 0 && g0.inY === 0 && g0.ai === true && g1.ai === false, '교체 순간 이전 무장은 AI · 입력 벡터 0');
+        check(s.setPlayer('left', eg.id) === false && s.setPlayer('left', 9999) === false && s.playerOf('left') === g1, '남의 편·없는 id 는 거절하고 그대로');
+        check(s.setPlayer('left', null) === true && s.playerOf('left') === null && g1.ai === true, 'setPlayer(left, null) → 전원 AI(자동)');
+        check(s.setPlayer('left', g0.id) === true && s.playerOf('left') === g0, '자동 → 다시 조종');
+        // 결정성: 같은 seed·같은 호출 순서 두 번
+        const runSw = () => {
+          const q = simMod.createBattle({ seed: 6, left, right });
+          q.command('left', 'charge'); q.command('right', 'charge');
+          const gs = q.generalsOf('left');
+          for (let i = 0; i < 900; i++) {
+            if (i === 200) q.setPlayer('left', gs[1].id);
+            if (i === 500) q.setPlayer('left', null);
+            const pl = q.playerOf('left');
+            if (pl) q.setGeneralInput('left', pl.id, { dx: 1, dy: 0.2 });
+            q.step(16.7); q.drainEvents();
+          }
+          return q.units.reduce((acc, u) => acc + u.hp + u.x, 0);
+        };
+        const r1 = runSw(), r2 = runSw();
+        check(r1 === r2, `setPlayer 결정성: 같은 호출 순서 두 번 = ${r1.toFixed(3)} / ${r2.toFixed(3)}`);
+      }
+    }
+    // 3차: BattleScene 이 HUD 에 내놓는 조종·배속 메서드
+    {
+      const P = battle && battle.default && battle.default.prototype;
+      const need = ['selectGeneral', 'cycleGeneral', 'toggleAuto', 'setAuto', 'cycleSpeed', 'setSpeed', 'checkPlayerAlive'];
+      check(P && need.every((n) => typeof P[n] === 'function'), `BattleScene 3차 메서드 ${need.join('·')}`);
+      check(Array.isArray(battle.SPEEDS) && battle.SPEEDS.join() === '1,2,3', 'BattleScene.SPEEDS = [1,2,3]');
+    }
     check(typeof b.time === 'number' && b.time > 29000, `time ${Math.round(b.time)}ms`);
     check(types.has('hit') && types.has('death'), `30초 안에 hit·death 이벤트 (${[...types].join(',')})`);
     check(U.every((u) => ['idle', 'move', 'attack', 'hurt', 'stun', 'flee', 'dead', 'gone'].includes(u.state)), 'state 값이 계약 안');

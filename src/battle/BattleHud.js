@@ -7,6 +7,10 @@
 //   2차 그림은 전부 선택: 없으면 1차 모습(자리표시 초상 + 편 색 테두리, 선 테두리 바, 원형 Graphics 버튼)으로 돈다.
 //   BattleScene 의 공개 필드를 매 프레임 읽는다(sim·genMeta·cmd …). main.js relayout 은 restart({ relayout: true }).
 //   폰 가로(FIT 0.54배) 기준: 버튼 ≥ 72px 논리, 글자 ≥ 22px(HUD 라벨 24·결과 사유 24·무장기 이름 24), 무장 이름 30px.
+//   3차(docs/BATTLE_V3.md §1·§2): 아군 무장 블록 탭 = 그 무장 조종(금색 테 + 「조종」 꼬리표, 조종 중인 것을 다시 탭 = 자동) ·
+//     병법 줄 왼쪽 「자동/수동」 토글 · 시간 옆 배속 버튼(×1→×2→×3) · 무장기 버튼은 고른 무장 것(아이콘 없으면 글자).
+//     상태(고른 무장·자동·배속)는 BattleScene 이 들고 있고 여기선 매 프레임 읽어 달라졌을 때만 다시 칠한다 →
+//     relayout 으로 이 씬이 restart 돼도 그대로 복원된다(this.last 가 비어 첫 update 에 전부 다시 칠한다).
 // ※ 한글 문구를 새로 넣으면 factions.js 의 KOREAN_SAMPLE 에도 넣어라(tools/smoke.mjs 가 대조한다).
 
 import { play as sfx } from '../sfx.js';
@@ -45,6 +49,14 @@ export const HUD_LAYOUT = {
   gen:    { y: 103, portraitW: 72, portraitH: 90, frameW: 84, frameH: 102, blockW: 240, gap: 10, textX: 92, nameDy: -27, barDy: 22, barW: 146, barH: 40, inset: 8, corner: 14 },
   skill:  { r: 60, cx: 104, cy: 104, medallion: 164, icon: 72, arcR: 45, arcW: 9 },   // cx/cy: 오른쪽 아래 모서리에서의 거리. 버튼 지름 ≥ 72
   tactic: { w: 150, h: 72, gap: 8, corner: 32 },
+  // 3차(docs/BATTLE_V3.md §1·§2) — 폰 가로(FIT 0.54) 기준 버튼 ≥ 72px 논리 · 글자 ≥ 22px. smoke 가 검사한다.
+  //   auto: 「자동/수동」 토글 — 병법 버튼 줄 왼쪽(gap 은 병법 묶음과의 간격). 줄 전체 폭 110+16+466 = 592 → 1280 폭에서 왼쪽 끝 x 664 > 640(조이스틱 반)
+  //   speed: 배속 버튼 — 가운데 시간 표시 오른쪽(dx = 화면 가운데에서 버튼 가운데까지). 1280 폭에서 x 712~808 · y 8~80:
+  //     시간 글자(600~680)·오른쪽 병력 바(876~)·오른쪽 둘째 무장 이름(864~, y 61~)·HP 바(y 105~)와 안 겹친다
+  //   sel: 고른 무장 초상의 금색 테(초상 테두리 바깥 +pad)와 「조종」/「자동」 꼬리표(초상 아래쪽, 글자 22px)
+  auto:   { w: 110, h: 72, gap: 16, corner: 32 },
+  speed:  { w: 96, h: 72, corner: 32, dx: 120, y: 44 },
+  sel:    { pad: 3, line: 4, tagW: 60, tagH: 30, tagDy: -19, font: 22 },
   result: {
     panel: { w: 600, h: 440, corner: 48 },
     parchment: { w: 520, h: 236, corner: 24 },
@@ -55,6 +67,8 @@ export const HUD_LAYOUT = {
 
 /** 병법 외침 — 명령을 내리면 화면 가운데 붓글씨가 커졌다 사라진다(0.6초) */
 const CMD_SHOUT = { charge: '돌격!', hold: '대기!', retreat: '후퇴!' };
+/** (3차 통합) 포인터 id — 버튼이 「내 위에서 눌린 그 손가락」인지 가릴 때 쓴다(헤드리스 흉내는 포인터를 안 넘긴다 → 0) */
+const pid = (p) => (p && p.id != null ? p.id : 0);
 
 /** 병법 3종 */
 const TACTICS = [
@@ -77,7 +91,7 @@ export default class BattleHud extends Phaser.Scene {
     this.battle = this.scene.get('BattleScene');
     const data = this.scene.settings.data || {};
     const relayout = !!data.relayout;
-    this.last = { l: -1, r: -1, sec: -1, gauge: -1, cmd: null, alive: true };
+    this.last = { l: -1, r: -1, sec: -1, gauge: -1, cmd: null, alive: true, playerId: -1, auto: null, speed: -1 };
     this.genRows = [];
     this.readyTween = null;
     this.resultOpen = false;
@@ -142,15 +156,24 @@ export default class BattleHud extends Phaser.Scene {
       fontFamily: FONT_BODY, fontSize, color: '#f7e9c9', stroke: '#2a1a0c', strokeThickness: 3,
     }).setOrigin(0.5);
     c.add([up, down, text]);
+    c.label = text;   // (3차) 자동/수동·배속 버튼은 상태에 따라 글자를 바꾼다
     c.setSize(w, h).setInteractive({ useHandCursor: true });
     c.press = (on) => {
       up.setVisible(!on);
       down.setVisible(on);
       text.y = on ? 2 : 0;
     };
-    c.on('pointerdown', () => { c.press(true); c.setScale(0.96); });
-    c.on('pointerup', () => { c.setScale(1); if (!c.held) c.press(false); onUp(); });
-    c.on('pointerout', () => { c.setScale(1); if (!c.held) c.press(false); });
+    // (3차 통합) 「이 버튼 위에서 눌린 손가락」이 뗄 때만 동작한다. Phaser 는 어디서 눌렀든 손가락을 뗀 자리의 객체에 pointerup 을 보내서,
+    //   조이스틱을 끌다 버튼 위에서 떼면 눌린 것으로 쳤다(검수: 1280 폭에선 자동 버튼이 조이스틱 반과 24px 차이). 병법 버튼도 같이 적용된다
+    c.on('pointerdown', (p) => { c.downId = pid(p); c.press(true); c.setScale(0.96); });
+    c.on('pointerup', (p) => {
+      const ok = c.downId === pid(p);
+      c.downId = null;
+      c.setScale(1);
+      if (!c.held) c.press(false);
+      if (ok) onUp();
+    });
+    c.on('pointerout', () => { c.downId = null; c.setScale(1); if (!c.held) c.press(false); });
     return c;
   }
 
@@ -216,6 +239,12 @@ export default class BattleHud extends Phaser.Scene {
     this.timeText = this.add.text(W / 2, y + 6, '0:00', {
       fontFamily: FONT_BRUSH, fontSize: '40px', color: '#f6e9c9', stroke: '#2a1a0c', strokeThickness: 4,
     }).setOrigin(0.5).setDepth(14);
+    // (3차) 배속 버튼 — 시간 오른쪽. 탭할 때마다 ×1 → ×2 → ×3 → ×1. 글자는 본문 폰트 굵게(붓글씨 아님), update 가 현재 값으로 칠한다
+    const SP = HUD_LAYOUT.speed;
+    this.speedBtn = this.makeButton(W / 2 + SP.dx, SP.y, SP.w, SP.h, SP.corner, '×1',
+      () => { if (this.battle) this.battle.cycleSpeed(); }, '30px');
+    this.speedBtn.label.setFontStyle('bold');
+    this.speedBtn.setDepth(15);
   }
 
   /** 무장 4명 블록 — sim 이 준비된 뒤(이름·key 를 알아야) 만든다. 왼쪽 묶음은 x 가 커지는 쪽으로, 오른쪽은 거울 */
@@ -260,8 +289,53 @@ export default class BattleHud extends Phaser.Scene {
         objs.push(name);
         const bar = this.makeBar(tx, y + G.barDy, G.barW, G.barH, G.inset, isPlayer ? 0xd94a3a : 0xc73b2e, left);
         objs.push(...bar.objs);
-        this.genRows.push({ meta, unit: u, bar, fill: bar.fill, name, portrait, objs, lastHp: -1 });
+        const row = { meta, unit: u, bar, fill: bar.fill, name, portrait, objs, lastHp: -1 };
+        // (3차) 아군 무장 = 조종 선택. 블록 전체(초상+이름+HP 바 240×102)가 탭 영역 — 폰에서 초상(39×49px)만 맞히기는 어렵다.
+        //   HUD_TOP(158) 위라 조이스틱과 안 겹친다. 고른 무장: 금색 테 + 꼬리표(수동 「조종」 / 자동 「자동」) — refreshSelection 이 칠한다
+        if (left) {
+          const SL = HUD_LAYOUT.sel;
+          row.sel = this.add.rectangle(px, y, G.frameW + SL.pad * 2, G.frameH + SL.pad * 2).setStrokeStyle(SL.line, 0xffd24a).setDepth(12.6).setVisible(false);
+          row.tagBg = this.add.rectangle(px, y + G.frameH / 2 + SL.tagDy, SL.tagW, SL.tagH, 0x1a120c, 0.92).setStrokeStyle(2, 0xffd24a).setDepth(12.7).setVisible(false);
+          row.tag = this.add.text(px, y + G.frameH / 2 + SL.tagDy, '조종', {
+            fontFamily: FONT_BODY, fontSize: `${SL.font}px`, fontStyle: 'bold', color: '#ffe08a',
+          }).setOrigin(0.5).setDepth(12.8).setVisible(false);
+          const zone = this.add.zone(bx + G.blockW / 2, y, G.blockW, G.frameH).setInteractive({ useHandCursor: true });
+          // (3차 통합) 이 블록 위에서 눌린 손가락이 뗄 때만 — 블록 바로 아래(y≥158)가 조이스틱 영역이라, 조이스틱을 위로 밀다 여기서 떼면
+          //   조종 무장이 바뀌거나 소리 없이 「자동」으로 넘어가고 그게 registry 에 기억됐다(검수)
+          zone.on('pointerdown', (p) => { row.downId = pid(p); });
+          zone.on('pointerout', () => { row.downId = null; });
+          zone.on('pointerup', (p) => {
+            const ok = row.downId === pid(p);
+            row.downId = null;
+            if (ok && this.battle && !this.resultOpen) this.battle.selectGeneral(u.id);
+          });
+          row.zone = zone;
+          objs.push(row.sel, row.tagBg, row.tag, zone);
+        }
+        this.genRows.push(row);
       });
+    }
+    this.refreshSelection();
+  }
+
+  /** (3차) 고른 무장 강조 — 금색 테·꼬리표·이름 색·HP 바 색. 자동이면 테를 은빛으로, 꼬리표는 「자동」(카메라만 따라간다) */
+  refreshSelection() {
+    const b = this.battle;
+    if (!b) return;
+    for (const row of this.genRows) {
+      if (!row.sel) continue;
+      const on = row.unit.id === b.playerId;
+      const edge = b.auto ? 0xcfd8e6 : 0xffd24a;
+      row.sel.setVisible(on);
+      row.tagBg.setVisible(on);
+      row.tag.setVisible(on);
+      if (on) {
+        row.sel.setStrokeStyle(HUD_LAYOUT.sel.line, edge);
+        row.tagBg.setStrokeStyle(2, edge);
+        row.tag.setText(b.auto ? '자동' : '조종').setColor(b.auto ? '#e6edf7' : '#ffe08a');
+      }
+      row.name.setColor(on ? '#ffe9a8' : '#f6e9c9');
+      row.bar.fill.setFillStyle(on ? 0xd94a3a : 0xc73b2e);
     }
   }
 
@@ -297,9 +371,15 @@ export default class BattleHud extends Phaser.Scene {
     c.add(this.skillText);
     const hit = (hasMedal ? S.medallion : S.r * 2 + 8);
     c.setSize(hit, hit).setInteractive({ useHandCursor: true });
-    c.on('pointerdown', () => c.setScale(0.92));
-    c.on('pointerup', () => { c.setScale(1); if (this.battle) this.battle.tryUseSkill(); });
-    c.on('pointerout', () => c.setScale(1));
+    // (3차 통합) 다른 버튼과 같은 가드 — 이 버튼 위에서 눌린 손가락이 뗄 때만 무장기
+    c.on('pointerdown', (p) => { c.downId = pid(p); c.setScale(0.92); });
+    c.on('pointerup', (p) => {
+      const ok = c.downId === pid(p);
+      c.downId = null;
+      c.setScale(1);
+      if (ok && this.battle) this.battle.tryUseSkill();
+    });
+    c.on('pointerout', () => { c.downId = null; c.setScale(1); });
 
     // 병법 3버튼 — 무장기 버튼 위 한 줄, 오른쪽 정렬 (ui/button 9-slice 그대로)
     const T = HUD_LAYOUT.tactic;
@@ -313,9 +393,17 @@ export default class BattleHud extends Phaser.Scene {
       btn.cmd = t.cmd;
       return btn;
     });
+    // (3차) 「자동/수동」 토글 — 병법 줄 왼쪽. 글자는 지금 상태(자동이면 눌린 모습 + 금색). update 가 BattleScene.auto 를 읽어 칠한다
+    const A = HUD_LAYOUT.auto;
+    this.autoBtn = this.makeButton(x0 - T.w / 2 - A.gap - A.w / 2, ty, A.w, A.h, A.corner, '수동',
+      () => { if (this.battle) this.battle.toggleAuto(); });
+    this.autoBtn.setDepth(20);
   }
 
-  /** 조종 무장이 정해지면 무장기 이름·아이콘을 채운다. 아이콘이 있으면 이름은 아래쪽 테 위에 24px 로 */
+  /**
+   * 고른 무장의 무장기 이름·아이콘을 채운다. 아이콘이 있으면 이름은 아래쪽 테 위에 24px 로.
+   * (3차) 고른 무장이 바뀔 때마다 다시 부른다 → 아이콘이 없는 무장(hud_skill_<key> 없음)이면 아이콘을 치우고 이름을 가운데 30px 로 되돌린다
+   */
   fillSkill(meta) {
     const S = HUD_LAYOUT.skill;
     const name = (meta && meta.skill && meta.skill.name) || '무장기';
@@ -323,6 +411,9 @@ export default class BattleHud extends Phaser.Scene {
     if (iconKey && this.textures.exists(iconKey)) {
       this.skillIcon.setTexture(iconKey).setDisplaySize(S.icon, S.icon).setVisible(true);
       this.skillText.setFontSize(24).setY(S.medallion / 2 - 24);   // 아래쪽 테 위
+    } else {
+      this.skillIcon.setVisible(false);
+      this.skillText.setFontSize(30).setY(0);
     }
     this.skillText.setText(name);
   }
@@ -394,6 +485,8 @@ export default class BattleHud extends Phaser.Scene {
       skillName: (meta.skill && meta.skill.name) || '',
       key: meta.key != null ? `cutin_${meta.key}` : null,
       color: meta.side === 'right' ? 0x9cc0ff : 0xffd24a,
+      side: meta.side,   // (3차) 컷신(cutin.js)이 적 편이면 좌우를 뒤집는다 — 옛 cutin() 은 모르는 인자라 그냥 무시한다
+      mode: meta.cutinMode || null,   // (3차 컷신) BattleScene 이 cutinPlan 으로 정한 모양 그대로 — 히트스톱 길이와 어긋나지 않게
     });
   }
 
@@ -526,18 +619,37 @@ export default class BattleHud extends Phaser.Scene {
         if (hp <= 0) { row.name.setAlpha(0.45); row.portrait.setAlpha(0.45); }
       }
     }
-    // 무장기 게이지·이름
+    // (3차) 고른 무장·자동 여부가 달라졌으면 초상 강조·자동 버튼·무장기 버튼(아이콘·이름)을 다시 칠한다. restart 직후엔 L 이 비어 있어 전부 칠한다
     const p = b.playerUnit;
+    const auto = !!b.auto;
+    if (b.playerId !== L.playerId || auto !== L.auto) {
+      const changedGen = b.playerId !== L.playerId;
+      L.playerId = b.playerId;
+      L.auto = auto;
+      this.refreshSelection();
+      this.autoBtn.label.setText(auto ? '자동' : '수동').setColor(auto ? '#ffe08a' : '#f7e9c9');
+      this.autoBtn.held = auto;
+      this.autoBtn.press(auto);
+      this.autoBtn.setAlpha(b.canSwitch === false ? 0.4 : 1);   // 더미 sim(setPlayer 없음)이면 못 바꾼다
+      if (changedGen && p) {
+        this.fillSkill(b.genMeta.get(p.id));
+        L.gauge = -1;                                           // 게이지 호·빛 무리를 새 무장 값으로
+      }
+    }
+    // (3차) 배속 글자 — ×2·×3 이면 눌린 모습 + 금색
+    const speed = b.speed || 1;
+    if (speed !== L.speed) {
+      L.speed = speed;
+      this.speedBtn.label.setText(`×${speed}`).setColor(speed > 1 ? '#ffe08a' : '#f7e9c9');
+      this.speedBtn.held = speed > 1;
+      this.speedBtn.press(speed > 1);
+    }
+    // 무장기 게이지
     const g = p ? Math.round(Math.max(0, Math.min(100, p.gauge || 0))) : 0;
     if (g !== L.gauge) {
       L.gauge = g;
       this.drawGauge(g);
       this.setReady(g >= 100 && !b.ended);
-    }
-    if (!L.skillName && p) {
-      const meta = b.genMeta.get(p.id);
-      L.skillName = (meta && meta.skill && meta.skill.name) || '무장기';
-      this.fillSkill(meta);
     }
     const alive = !!p && p.state !== 'dead' && p.state !== 'gone';
     if (alive !== L.alive) {

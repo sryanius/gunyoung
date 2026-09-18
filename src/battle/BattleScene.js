@@ -3,8 +3,15 @@
 //   진입: this.scene.start('BattleScene', { seed, left?, right? })  ← UIScene 「출진」
 //   위에 BattleHud 를 겹쳐 띄운다(병력 바·HP·버튼·결과). HUD 는 이 씬의 공개 필드를 읽고 메서드를 부른다:
 //     읽기: sim, genMeta(Map unitId→meta), playerId, playerUnit, cmd, skillUsed, total, introUntil, ended, result, seed
+//           + 3차: auto(자동 여부) · speed(배속 1|2|3) · canSwitch(sim 에 setPlayer 가 있는가)
 //     호출: command(cmd) · tryUseSkill() · restartBattle() · goMap()
+//           + 3차: selectGeneral(unitId) · cycleGeneral() · toggleAuto() · setAuto(on) · cycleSpeed() · setSpeed(n)
 //     이벤트(this.events): 'battle:ready' | 'battle:skill'(meta) | 'battle:skillfail' | 'battle:command'(e) | 'battle:end'(result)
+//           + 3차: 'battle:player'({ id, auto }) | 'battle:speed'(n) — HUD 는 재시작(relayout)에도 안 놓치게 이벤트가 아니라 매 프레임 필드를 읽는다
+//   3차(docs/BATTLE_V3.md §1·§2) — 조종 선택·자동/수동·배속:
+//     playerId/playerUnit = 「고른 무장」(카메라 추적·무장기 버튼·발밑 빛). auto 면 sim 쪽 조종 무장은 없고(setPlayer(null)) 전원 AI 지만
+//     고른 무장은 그대로라 카메라가 따라가고 무장기 버튼도 그 무장 것을 직접 쓴다. 이 상태들은 전부 이 씬이 들고 있어
+//     main.js relayout(HUD 만 restart)에도 그대로 남는다. 배속·자동 여부는 registry 에도 적어 다음 전투에 이어진다.
 //   data.js·sim.js 는 동적 import — 없으면 아래 DEFAULT_DATA 와 assets/raw/battle/sim-stub.mjs(더미)로 돈다.
 //
 // 그리기 규칙(§4.1): 유닛 = Sprite 하나(풀), 깊이 = y, 그림자는 Graphics 하나에 전부, 애니는 프레임이 아니라 코드 연출.
@@ -17,11 +24,14 @@
 //     → fx ADD 900 → 앞 안개 950 → 비네트(HUD 씬 맨 아래 — 줌·흔들림에 안 끌려가게 거기 둔다) → HUD.
 //   카메라 줌 1.15(무장기 때 1.25 펀치). ※ 줌은 scrollFactor 0 인 것도 키운다 → 조이스틱 그림은 역변환해 그린다(drawJoy).
 //   무장기: 히트스톱 120ms(sim.step 을 건너뛴다) + 흔들림 0.35초 + 흰 flash + 줌 펀치 + 모양별 이펙트(fx.skillCone/skillRing/impact).
+//   3차 컷신(docs/BATTLE_V3.md §3.3, cutin.js): 무장기 → 컷신(실시간 1.6초, 배속 무관) 동안 sim 정지(onSkill: pendingSkill·heldEvents)
+//     → 복귀 시각에 위 피해 연출 + 묵힌 이벤트(skillImpact, update 머리) → 120ms 멈칫. 컷신 중엔 죽음·종료 연출·사망 전환·무장기 입력을 미룬다.
 //
 // ※ 한글 문구를 새로 넣으면 factions.js 의 KOREAN_SAMPLE 에도 넣어라(tools/smoke.mjs 가 대조한다).
 
 import { play as sfx } from '../sfx.js';
 import { Fx } from './fx.js';
+import { cutinPlan } from './cutin.js';   // (3차 컷신) 컷신이 뜨기 전에 길이를 안다 — 히트스톱·줌 펀치·피해 연출 시각
 
 /** 전장 논리 크기·땅 띠 (§1) */
 export const FIELD = { w: 3200, h: 720, top: 400, bottom: 690 };
@@ -42,6 +52,11 @@ const MAX_STEPS = 4;        // 프레임당 최대 step 횟수 (탭 복귀 폭�
 const JOY_R = 70;           // 가상 조이스틱 반지름
 const JOY_DEAD = 12;        // 데드존
 const INTRO_MS = 1200;      // 「전투 개시」 동안 sim 정지
+/** (3차) 배속 — sim 에 넘기는 시간·연출 시계(animT)에 곱한다. 컷인·히트스톱·결과 패널 트윈은 실시간 그대로 */
+export const SPEEDS = [1, 2, 3];
+const REG_SPEED = 'battleSpeed';   // registry 키 — 다음 전투에도 유지
+const REG_AUTO = 'battleAuto';
+const AUTO_DRAG = 24;       // 자동 중 왼쪽 반을 이만큼(논리 px — 폰 0.54배에선 ≈13px) 끌면 수동으로 돌아온다 — 그냥 탭은 무시. 실기에서 탭이 수동으로 새면 36~40 으로
 const HUD_TOP = 158;        // 이 위쪽 터치는 조이스틱으로 안 잡는다(HUD 영역 — BattleHud 초상 테두리 아래 끝 154. 2차 HUD 에서 132→158)
 
 /** 렌더 층(깊이) — BATTLE_ART.md §5. 유닛은 y(400~690), fx 쪽은 fx.js FX_DEPTH(데칼 5·범위 7.8·fx 900) */
@@ -69,7 +84,11 @@ export const U2 = {
  */
 export const U2_ANCHOR = {
   inf: [62, 50], spear: [62, 47], bow: [61, 64], cav: [64, 64],
-  gen_guanyu: [72, 66], gen_zhangfei: [57, 51], gen_xiahoudun: [66, 52], gen_dianwei: [75, 60],   // 전위 stand 는 뒤로 든 도끼 탓에 무게중심(71)보다 몸이 앞(75) — 기준선을 그려 눈으로 맞춤(_integ_anchor_sheet.png)
+  // (3차 여성 무장·통합) 무장 그림 8장이 바뀌어 다시 쟀다. 남성판 값은 [72,66]·[57,51]·[66,52]·[75,60].
+  //   art 갈래 제안은 [60,56]·[60,48]·[60,50]·[53,49](몸통 띠의 가장 긴 불투명 구간 가운데)였는데, 관우는 바닥까지 끄는 긴 머리, 하후돈은 망토·뒤로 든 대도가
+  //   그 구간에 붙어 stand 값이 뒤(왼쪽)로 8px 쏠렸다 — 8px 격자 시트(assets/raw/battle3/units/_integ_grid_0·1.png)로 몸통·두 발을 눈으로 읽고
+  //   색으로 확인(관우 녹색 옷 y70~120 평균 66.7 · 하후돈 다리 y132~150 가운데 67.5). stand−attack 차는 앞발이 제자리에 남는 값(관우 신발 77~86 → 69~77).
+  gen_guanyu: [68, 61], gen_zhangfei: [62, 49], gen_xiahoudun: [67, 51], gen_dianwei: [53, 50],
 };
 /** 1차 그림·코드 실루엣의 몸 높이·그림자 (기존 값 그대로) */
 const U1 = { soldier: { h: 37, sw: 18, sh: 6 }, general: { h: 52, sw: 36, sh: 11 } };
@@ -234,9 +253,19 @@ export default class BattleScene extends Phaser.Scene {
     this.freezeAt = 0;
     this.lastHitSfx = 0;
     this.joy = null;
+    // 3차 — 조종 선택·배속. 자동 여부·배속은 registry 에서 이어받는다(「다시」·다음 출진에도 유지)
+    this.joyPending = null;      // 자동 중 왼쪽 반을 누른 손가락 { id, ox, oy } — AUTO_DRAG 넘게 끌면 수동 + 조이스틱
+    this.canSwitch = false;      // sim.setPlayer 가 있는가(더미 sim 엔 없다 → 선택·자동 버튼은 아무 일도 안 한다)
+    this.auto = false;
+    const sp0 = this.registry ? this.registry.get(REG_SPEED) : 1;
+    this.speed = SPEEDS.includes(sp0) ? sp0 : 1;
+    this.simSpeed = 1;           // 이번 프레임에 실제로 건 배율(인트로·종료 뒤엔 1) — 화살·돌진처럼 sim 시간으로 온 길이를 실시간으로 바꿀 때 쓴다
     // 2차 연출 상태 — 씬 재시작(「다시」) 때도 create 가 다시 돌므로 여기서 초기화한다
     this.animT = 0;              // 연출용 시계(ms) — 히트스톱 동안 멈춘다(bob·깃발 펄럭임)
     this.hitStopUntil = 0;
+    this.heldEvents = null;      // (3차 컷신) 컷신 동안 묵혀 둔 sim 이벤트 — 무장기와 같은 틱에 나온 hit·death·knockback 은 복귀 순간에 터진다
+    this.pendingSkill = null;    // (3차 컷신) 복귀 시각에 터뜨릴 피해 연출 { e, sk, facing, at }
+    this.skillQueued = false;    // (3차 통합) 컷신·멈칫 중에 눌린 무장기(게이지 100) — sim 이 다시 흐르는 첫 프레임에 쓴다
     this.punchAt = -1e9;         // 줌 펀치 시작 시각
     this.dash = null;            // 맹공 돌진 궤적 { unit, until, next }
     this.fogOff = 0;
@@ -319,11 +348,18 @@ export default class BattleScene extends Phaser.Scene {
     }
     this.playerUnit = p || leftGens[0] || null;
     this.playerId = this.playerUnit ? this.playerUnit.id : null;
+    // (3차) 지난 전투를 자동으로 두었으면 자동으로 시작한다 — 첫 틱 전에 부르므로 「같은 seed + 자동」 은 늘 같은 판이다
+    this.canSwitch = typeof this.sim.setPlayer === 'function';
+    if (this.canSwitch && this.registry && this.registry.get(REG_AUTO) === true) {
+      this.auto = true;
+      this.sim.setPlayer('left', null);
+    }
     this.total.left = this.sim.countAlive('left');
     this.total.right = this.sim.countAlive('right');
 
     this.buildBearers();
     this.buildGeneralViews();
+    this.refreshLabels();   // (3차) registry 에서 자동으로 시작했으면 빛 무리를 옅게
 
     // 카메라를 바로 무장 위에 두고 첫 프레임을 그려 둔다(인트로 뒤에 튀지 않게)
     if (this.playerUnit) {
@@ -337,6 +373,9 @@ export default class BattleScene extends Phaser.Scene {
   onShutdown() {
     this.bootToken = null;
     this.endJoy();
+    // (3차 통합) Tab 기본 동작 막기(setupInput 의 addCapture)는 게임 전역(KeyboardManager)이라 씬이 닫혀도 남는다 → 지도 화면에서 Tab 이 죽지 않게 푼다
+    const kb = this.input && this.input.keyboard;
+    if (kb && typeof kb.removeCapture === 'function') kb.removeCapture('TAB');
     if (this.scene.isActive('BattleHud')) this.scene.stop('BattleHud');
   }
 
@@ -647,12 +686,23 @@ export default class BattleScene extends Phaser.Scene {
       const u = meta.unit;
       const label = this.add.text(u.x, u.y, meta.name, {
         fontFamily: '"Nanum Brush Script", "Song Myung", serif', fontSize: '22px',
-        color: u.id === this.playerId ? '#ffe9a8' : meta.side === 'left' ? '#d6ffd9' : '#d6e4ff',
+        color: this.labelColor(u.id, meta.side),
         stroke: '#1a120c', strokeThickness: 4,
       }).setOrigin(0.5, 1).setDepth(LAYER.name);
       if (typeof label.setResolution === 'function') label.setResolution(1.5);   // 줌 1.15~1.25 에서 덜 뭉개지게
-      this.genViews.push({ unit: u, label, color: SIDE_COLOR[meta.side], h: this.texFor(u).h });
+      this.genViews.push({ unit: u, label, side: meta.side, color: SIDE_COLOR[meta.side], h: this.texFor(u).h });
     }
+  }
+
+  /** 전장 이름표 색 — 고른 무장은 금색. (3차) 고른 무장이 바뀌면 refreshLabels 가 다시 칠한다 */
+  labelColor(id, side) {
+    return id === this.playerId ? '#ffe9a8' : side === 'left' ? '#d6ffd9' : '#d6e4ff';
+  }
+
+  refreshLabels() {
+    for (const v of this.genViews) v.label.setColor(this.labelColor(v.unit.id, v.side));
+    // 발밑 빛 무리: 수동 0.5(기존 값) / 자동이면 옅게 — 「따라가며 보고 있을 뿐」
+    if (this.playerGlow) this.playerGlow.setAlpha(this.auto ? 0.25 : 0.5);
   }
 
   /**
@@ -683,7 +733,7 @@ export default class BattleScene extends Phaser.Scene {
         s = this.acquire(u);
       }
       if (s.dying) continue;
-      if (u.state === 'dead') { this.startDeath(s, u); continue; }
+      if (u.state === 'dead' && !this.pendingSkill) { this.startDeath(s, u); continue; }   // (3차 컷신) 컷신 중엔 아직 서 있다 — 복귀 프레임에 쓰러진다(피해는 컷신이 끝나는 순간 터지는 것처럼)
 
       const t = s.tex;
       const isGen = u.kind === 'general';
@@ -789,7 +839,8 @@ export default class BattleScene extends Phaser.Scene {
     return gens.find((u) => u.state !== 'dead' && u.state !== 'gone') || p || null;
   }
 
-  updateCamera(time, delta) {
+  /** @param sp (3차) 배속 — 유닛이 sp 배로 빨리 움직이므로 추적 lerp 도 sp 배로(안 그러면 ×3 에서 무장이 화면 가운데서 80px 앞서 달린다). 줌 펀치는 실시간 */
+  updateCamera(time, delta, sp = 1) {
     const cam = this.cameras.main;
     // 줌 펀치: 0.2초에 1.25 까지(easeOut) → 0.32초에 복귀(cos). 트윈·zoomTo 대신 직접 — 재발동·히트스톱과 안 엉킨다
     let z = CAM_ZOOM;
@@ -806,12 +857,13 @@ export default class BattleScene extends Phaser.Scene {
     if (!t) return;
     // 목표도 경계 안으로 잘라 두어야 전장 끝에서 lerp 가 벽에 눌려 느려지지 않는다(카메라 bounds 는 preRender 에서 한 번 더 자른다)
     const want = this.scrollXFor(t.x + (t.facing < 0 ? -1 : 1) * CAM_LEAD, z);
-    const k = 1 - Math.pow(1 - CAM_LERP, delta / 16.67);   // 프레임 속도와 무관하게 같은 감쇠
+    const k = 1 - Math.pow(1 - CAM_LERP, (delta * sp) / 16.67);   // 프레임 속도와 무관하게 같은 감쇠
     cam.scrollX += (want - cam.scrollX) * k;
   }
 
   // ─────────────────────────────────────────────────────────────
   // 입력 — 왼쪽 반 터치 = 가상 조이스틱(터치한 자리에 생김). 키보드 WASD/화살표, Space, 1/2/3.
+  //   (3차) Tab 다음 무장 · Q 자동/수동 · X/+/− 배속. 자동일 때는 조이스틱이 안 생기고, 왼쪽 반을 끌거나 이동 키를 누르면 수동으로 돌아온다.
   //   조이스틱 위치는 이벤트가 아니라 매 프레임 포인터를 직접 읽는다 — HUD 버튼을 누른 손가락과 같은 touchmove 에
   //   묶이면 위 씬(HUD)이 그 이벤트를 삼켜(globalTopOnly) 아래 씬의 pointermove 가 빠질 수 있어서다.
   // ─────────────────────────────────────────────────────────────
@@ -835,22 +887,40 @@ export default class BattleScene extends Phaser.Scene {
       kb.on('keydown-ONE', () => this.command('charge'));
       kb.on('keydown-TWO', () => this.command('hold'));
       kb.on('keydown-THREE', () => this.command('retreat'));
+      // (3차) Tab = 다음 무장 · Q = 자동/수동 · X 또는 + = 배속 올림(3 다음은 1) · − = 배속 내림. 1/2/3 은 병법이라 못 쓴다.
+      //   Tab 은 브라우저가 포커스를 캔버스 밖으로 옮기므로 기본 동작을 막는다(addCapture — 헤드리스 흉내엔 없어서 있는지 본다)
+      if (typeof kb.addCapture === 'function') kb.addCapture('TAB');
+      const once = (fn) => (ev) => { if (!ev || !ev.repeat) fn(); };   // 누르고 있을 때의 자동 반복은 버린다(토글이 깜빡인다)
+      kb.on('keydown-TAB', once(() => this.cycleGeneral()));
+      kb.on('keydown-Q', once(() => this.toggleAuto()));
+      kb.on('keydown-X', once(() => this.cycleSpeed()));
+      kb.on('keydown-PLUS', once(() => this.cycleSpeed()));
+      kb.on('keydown-NUMPAD_ADD', once(() => this.cycleSpeed()));
+      kb.on('keydown-MINUS', once(() => this.setSpeed(this.speed - 1)));
+      kb.on('keydown-NUMPAD_SUBTRACT', once(() => this.setSpeed(this.speed - 1)));
     }
   }
 
   onPointerDown(p) {
     if (this.joy || this.ended || !this.sim) return;
     if (p.x >= W / 2 || p.y < HUD_TOP) return;
+    // (3차) 자동일 때는 조이스틱을 안 만든다 — 누른 자리만 기억해 두고, 끌면(applyInput) 수동으로 돌아오며 그 자리에 조이스틱이 생긴다
+    if (this.auto) {
+      if (!this.joyPending) this.joyPending = { id: p.id, ox: p.x, oy: p.y };
+      return;
+    }
     this.joy = { id: p.id, ox: p.x, oy: p.y, dx: 0, dy: 0 };
     this.drawJoy();
   }
 
   onPointerUp(p) {
+    if (this.joyPending && p.id === this.joyPending.id) this.joyPending = null;
     if (this.joy && p.id === this.joy.id) this.endJoy();
   }
 
   endJoy() {
     this.joy = null;
+    this.joyPending = null;
     if (this.joyG) this.joyG.clear().setVisible(false);
   }
 
@@ -882,6 +952,17 @@ export default class BattleScene extends Phaser.Scene {
   /** 조이스틱·키보드 → setGeneralInput. 매 프레임 (0,0 이면 제자리에서 자동 공격만) */
   applyInput() {
     let dx = 0, dy = 0;
+    // (3차) 자동 중 왼쪽 반을 누른 손가락이 AUTO_DRAG 넘게 끌렸으면 토스트 없이 수동으로 — 누른 자리에 조이스틱이 생겨 끌던 손가락이 그대로 이어진다
+    if (this.joyPending) {
+      const j = this.joyPending;
+      const p = this.pointerById(j.id);
+      if (!p || !p.isDown || !this.auto) this.joyPending = null;
+      else if (Math.hypot(p.x - j.ox, p.y - j.oy) > AUTO_DRAG) {
+        this.joyPending = null;
+        this.setAuto(false);
+        if (!this.auto && !this.joy) this.joy = { id: j.id, ox: j.ox, oy: j.oy, dx: 0, dy: 0 };
+      }
+    }
     if (this.joy) {
       const p = this.pointerById(this.joy.id);
       if (!p || !p.isDown) {
@@ -907,8 +988,11 @@ export default class BattleScene extends Phaser.Scene {
         const n = Math.hypot(kx, ky);
         dx = kx / n;
         dy = ky / n;
+        if (this.auto) this.setAuto(false);   // (3차) 자동 중 이동 키 = 조이스틱을 끈 것과 같다 → 수동 복귀
       }
     }
+    // (3차) 자동: 전원 AI — sim 에 조종 무장이 없으니 입력도, 아래 「부대 따라가기」(수동 전용)도 없다
+    if (this.auto) return;
     // 자동 따라가기 — 돌격 명령 뒤 손을 떼고 있으면 부대만 나가고 조종 무장이 혼자 남는다(첫 판에 누구나 겪는다).
     //   1.2초 이상 입력이 없고 병법이 돌격이면 자기 부대 중심을 향해 걷는다. 조이스틱·키를 건드리면 바로 수동으로 돌아온다.
     const now = this.time.now;
@@ -956,9 +1040,115 @@ export default class BattleScene extends Phaser.Scene {
     if (!this.sim || this.ended || !this.playerUnit) return false;
     const p = this.playerUnit;
     if (p.state === 'dead' || p.state === 'gone') return false;
+    // (3차 컷신) 컷신·복귀 직후 멈칫(120ms) 중엔 무장기를 못 건다 — sim 은 멈춰 있는데 피해(state='dead')만 먼저 들어가면 죽음 연출이 컷신보다 앞선다.
+    //   (통합·검수) 멈칫 구간도 막는다: 남의 컷신 중에 누른 탭은 반응이 없어 다시 누르게 되는데 그 둘째 탭이 꼭 이 120ms 에 떨어졌다(16명이 컷신 전에 쓰러짐).
+    //   게이지가 찬 탭은 버리지 않고 적어 뒀다가 sim 이 다시 흐르는 첫 프레임에 쓴다(update) → 앞 컷신 직후라 짧은 버전으로 이어진다
+    if (this.pendingSkill || this.time.now < this.hitStopUntil) {
+      if ((p.gauge || 0) >= 100) this.skillQueued = true;
+      else this.events.emit('battle:skillfail');
+      return false;
+    }
     const ok = !!this.sim.useSkill('left', this.playerId);
     if (!ok) this.events.emit('battle:skillfail');
     return ok;
+  }
+
+  // ── 3차(docs/BATTLE_V3.md §1·§2): 조종 선택 · 자동/수동 · 배속 ──────────────
+
+  /** 지금 조종 대상으로 고를 수 있는(살아서 싸우는) 왼쪽 무장 — sim 순서 */
+  aliveGenerals() {
+    const gens = (this.sim && this.sim.generalsOf('left')) || [];
+    return gens.filter((u) => u.alive !== false && u.state !== 'dead' && u.state !== 'gone' && u.state !== 'flee');
+  }
+
+  /**
+   * 고른 무장(unit)·자동 여부를 sim 에 반영하고 화면에 알린다. 모든 선택·토글·사망 전환이 여기로 모인다.
+   *   sim.setPlayer 는 이전 조종 무장을 AI 로 돌리고 입력 벡터를 0 으로 한다. 조이스틱을 쥔 채 무장만 바꾸면 그 손가락이 새 무장을 몬다.
+   * @param opts.silent   효과음 없이(사망 전환)
+   * @param opts.remember 자동 여부를 registry 에 적는다 — 사용자가 고른 것만. 무장이 다 죽어 강제로 자동이 된 것은 안 적는다
+   */
+  applyPlayer(unit, auto, { silent = false, remember = true } = {}) {
+    if (!this.sim || !this.canSwitch) return false;
+    auto = !!auto || !unit;
+    if (!this.sim.setPlayer('left', auto ? null : unit.id)) return false;
+    if (unit) { this.playerUnit = unit; this.playerId = unit.id; }
+    this.auto = auto;
+    this.skillQueued = false;   // (3차 통합) 컷신 중에 적어 둔 무장기 탭은 앞 무장 것 — 버린다
+    if (auto) this.endJoy();
+    // 「입력 없으면 부대 따라가기」는 옛 무장 기준으로 재 둔 것 — 버리고, 바꾼 직후 1.2초는 제자리(바꾸자마자 혼자 걸어가면 당황스럽다)
+    this.lastManualT = this.time.now;
+    this.followT = 0;
+    this.followTarget = null;
+    if (remember && this.registry) this.registry.set(REG_AUTO, auto);
+    this.refreshLabels();
+    if (!silent) sfx('click');
+    this.events.emit('battle:player', { id: this.playerId, auto });
+    return true;
+  }
+
+  /** HUD 초상 탭 — 그 무장을 조종(수동). 이미 조종 중인 초상을 다시 탭하면 자동으로 */
+  selectGeneral(id) {
+    if (!this.sim || this.ended || !this.canSwitch) return false;
+    const u = this.unitById.get(id);
+    if (!u || u.side !== 'left' || u.kind !== 'general') return false;
+    if (id === this.playerId && !this.auto) return this.applyPlayer(u, true);
+    if (!this.aliveGenerals().includes(u)) return false;
+    return this.applyPlayer(u, false);
+  }
+
+  /** Tab — 다음 무장. 자동/수동은 그대로 둔다(자동으로 구경하면서 볼 무장만 바꿀 수 있게) */
+  cycleGeneral() {
+    if (!this.sim || this.ended || !this.canSwitch) return false;
+    const alive = this.aliveGenerals();
+    if (!alive.length) return false;
+    const next = alive[(alive.indexOf(this.playerUnit) + 1) % alive.length];
+    if (next === this.playerUnit) return false;
+    return this.applyPlayer(next, this.auto);
+  }
+
+  /** 자동(전원 AI) ↔ 수동(마지막으로 고른 무장, 죽었으면 살아 있는 다음 무장) */
+  setAuto(on) {
+    on = !!on;
+    if (!this.sim || this.ended || !this.canSwitch || on === this.auto) return false;
+    if (on) return this.applyPlayer(this.playerUnit, true);
+    const alive = this.aliveGenerals();
+    const u = alive.includes(this.playerUnit) ? this.playerUnit : alive[0];
+    return u ? this.applyPlayer(u, false) : false;
+  }
+
+  toggleAuto() {
+    return this.setAuto(!this.auto);
+  }
+
+  /**
+   * 고른 무장이 죽었으면 살아 있는 다른 아군 무장으로 넘긴다(수동이면 수동 그대로 — 그 무장을 바로 조종), 없으면 자동.
+   *   sim 이 아니라 여기서 하는 까닭: sim 은 (seed, 호출 열)의 순함수로 남긴다 — 「누가 다음인가·자동이었는가」는 화면 정책이고,
+   *   sim 이 스스로 바꾸면 입력을 안 넣는 헤드리스 벤치(--player)의 둘째 무장이 멍하니 서서 기존 수치가 달라진다(sim.js setPlayer 주석).
+   *   조이스틱 입력과 똑같이 「프레임 경계에서 부르는 외부 호출」이라 결정성 조건(같은 호출 순서 = 같은 결과)은 그대로다.
+   */
+  checkPlayerAlive() {
+    const p = this.playerUnit;
+    if (!p || !this.canSwitch || this.ended) return;
+    if (p.alive !== false && p.state !== 'dead' && p.state !== 'gone' && p.state !== 'flee') return;
+    const next = this.aliveGenerals()[0];
+    if (next) this.applyPlayer(next, this.auto, { silent: true });
+    else if (!this.auto) this.applyPlayer(null, true, { silent: true, remember: false });
+  }
+
+  /** 배속 1|2|3 — registry 에 기억(다음 전투에도). 인트로·종료 뒤에는 update 가 ×1 로 굴린다(값은 받아 둔다) */
+  setSpeed(n) {
+    n = Math.max(SPEEDS[0], Math.min(SPEEDS[SPEEDS.length - 1], Math.round(n) || 1));
+    if (n === this.speed) return false;
+    this.speed = n;
+    if (this.registry) this.registry.set(REG_SPEED, n);
+    sfx('click');
+    this.events.emit('battle:speed', n);
+    return true;
+  }
+
+  /** 배속 버튼 — ×1 → ×2 → ×3 → ×1 */
+  cycleSpeed() {
+    return this.setSpeed(SPEEDS[(SPEEDS.indexOf(this.speed) + 1) % SPEEDS.length]);
   }
 
   /** 결과 패널 「다시」 — 같은 seed·같은 군으로 다시 */
@@ -980,12 +1170,16 @@ export default class BattleScene extends Phaser.Scene {
   // ─────────────────────────────────────────────────────────────
 
   handleEvents(time) {
-    const evs = this.sim.drainEvents();
+    // (3차 컷신) 묵혀 둔 것을 먼저, 그 뒤에 새 이벤트
+    const fresh = this.sim.drainEvents();
+    const evs = this.heldEvents ? this.heldEvents.concat(fresh || []) : fresh;
+    this.heldEvents = null;
     if (!evs || !evs.length) return;
     const cam = this.cameras.main;
     // 보이는 범위 — 줌 z 면 화면 가운데(scrollX + W/2) ± W/2z. 타격 이펙트·타격음은 이 안에서만(풀 60 을 화면 밖에 쓰지 않는다)
     const vc = cam.scrollX + W / 2, vh = W / (2 * (cam.zoom || 1)) + 60;
     const viewL = vc - vh, viewR = vc + vh;
+    const sp = this.simSpeed || 1;   // (3차) 이번 프레임에 건 배속
     for (let i = 0; i < evs.length; i++) {
       const e = evs[i];
       switch (e.type) {
@@ -1000,7 +1194,10 @@ export default class BattleScene extends Phaser.Scene {
           const to = this.unitById.get(e.to);
           const fromGen = from && from.kind === 'general';
           const toGen = to && to.kind === 'general';
-          const vis = e.x > viewL && e.x < viewR;
+          let vis = e.x > viewL && e.x < viewR;
+          // (3차) 배속이면 실시간 1초에 타격이 sp 배로 몰린다 — fx 수명은 실시간이라 풀 60 이 바닥난다(×3 관전에서 건너뛴 이펙트 8%).
+          //   병사끼리의 타격 이펙트·타격음만 sp 번에 한 번으로 솎는다(무장이 낀 타격·무장기·흰 플래시는 그대로). ×1 이면 아무것도 안 바뀐다
+          if (sp > 1 && !fromGen && !toGen && !e.skill && (this.hitSeq = ((this.hitSeq || 0) + 1) % sp) !== 0) vis = false;
           const dir = from && from.facing < 0 ? -1 : 1;
           // 무장기 피해(e.skill)는 한 방에 수십 명 — 궤적 대신 불꽃만. 화살은 궤적 없음(작은 불꽃만)
           if (e.skill) this.fx.sparks(e.x, e.y - 20, 2);
@@ -1026,13 +1223,20 @@ export default class BattleScene extends Phaser.Scene {
           break;
         }
         case 'arrow':
-          this.fx.arrow(e.x0, e.y0, e.x1, e.y1, e.ms);
+          // (3차) e.ms 는 sim 시간 — 배속이면 화살 그림도 그만큼 빨리 날아야 피해가 들어가는 순간에 닿는다
+          this.fx.arrow(e.x0, e.y0, e.x1, e.y1, e.ms / sp);
           break;
         case 'death': {
           // 2차: 먼지 뭉치 3 + 핏자국 데칼(20초 뒤 페이드). 먼지 텍스처가 없으면 1차 파티클
-          if (e.x > viewL && e.x < viewR && !this.fx.puffs(e.x, e.y, 3)) this.fx.dust(e.x, e.y, 6);
+          //   (3차) 배속이면 먼지 뭉치를 3 → 2(×2) → 1(×3) 로 — 실시간 1초에 죽는 수가 sp 배라 fx 풀(60)을 죽음 먼지가 다 쓴다
+          if (e.x > viewL && e.x < viewR && !this.fx.puffs(e.x, e.y, Math.max(1, 4 - sp))) this.fx.dust(e.x, e.y, 6);
           const u = this.unitById.get(e.id);
           const gen = u && u.kind === 'general';
+          // (3차 통합) 쓰러짐을 이 이벤트에서 바로 시작한다. syncSprites 는 컷신 중(pendingSkill)엔 죽음 연출을 미루는데, 이벤트 순서를 따르면
+          //   ① 같은 프레임에 무장기보다 「먼저」 보통 공격으로 죽은 병사는 먼지와 함께 바로 쓰러지고(전엔 먼지만 나고 컷신 내내 서 있었다)
+          //   ② 한 프레임에 무장기가 둘이면(묵힌 목록 안에 또 skill) 첫 무장기로 죽은 병사는 첫 복귀 때 쓰러진다(전엔 둘째 컷신까지 서 있었다).
+          const ds = this.spriteById.get(e.id);
+          if (ds && u && !ds.dying) this.startDeath(ds, u);
           this.fx.decal(e.x, e.y + 2, 'blood', gen ? 84 : 40 + (e.id % 5) * 4, time);
           if (gen) {
             cam.shake(220, 0.006);
@@ -1043,7 +1247,8 @@ export default class BattleScene extends Phaser.Scene {
         case 'flee':
           break;
         case 'skill':
-          this.onSkill(e, time);
+          // (3차 컷신) 컷신이 뜨면 true — 뒤 이벤트(같은 틱의 hit·death·knockback, 또 다른 skill)는 복귀 때까지 묵힌다
+          if (this.onSkill(e, time)) { this.heldEvents = evs.slice(i + 1); return; }
           break;
         case 'knockback': {
           const s = this.spriteById.get(e.id);
@@ -1073,7 +1278,10 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   /**
-   * 무장기 발동 — 히트스톱 120ms + 흔들림 0.35초 + 흰 flash + 줌 펀치 1.25 + 모양별 이펙트 + 범위 표시·먼지·컷인(HUD).
+   * 무장기 발동 — (3차) 컷신을 걸고(HUD 'battle:skill') 그 길이만큼 sim 을 멈춘다. 피해 연출은 skillImpact 가 컷신 복귀 시각에(update).
+   *   컷신이 떴으면 true — handleEvents 가 뒤 이벤트를 묵힌다(heldEvents). 묵힌 것 안에 또 skill 이 있으면(같은 프레임의 적 무장기)
+   *   복귀 프레임에 차례로 이 함수에 다시 와 짧은 버전(cutinPlan 이 1.6초 안 연달아 → short)으로 이어진다.
+   *   피해 연출: 흔들림 0.35초 + 흰 flash + 줌 펀치 1.25 + 모양별 이펙트 + 범위 표시·먼지 → 복귀 뒤 120ms 멈칫.
    *   cone(청룡참): slash_blue 가 range 만큼 날아가며 커진다 / circle(포효·쌍극): ring 이 2배로 퍼진다 + 패인 자국
    *   dash(맹공): 출발 impact → update 의 돌진 궤적(먼지) → 도착 impact.  맞은 적은 'knockback' 이벤트로 튕기며 회전한다.
    */
@@ -1081,18 +1289,40 @@ export default class BattleScene extends Phaser.Scene {
     const meta = this.genMeta.get(e.id);
     const sk = (meta && meta.skill) || resolveSkill(this.battleData || DEFAULT_DATA, e.skill, null);
     const facing = e.facing < 0 ? -1 : 1;
+    // (3차 컷신, BATTLE_V3.md §3.3) 컷신(실시간 — 배속을 곱하지 않는다) 동안 sim 을 멈추고, 피해 연출은 컷신의 「복귀」 시각에 터뜨린다.
+    //   cutinPlan 은 emit 전에 부른다(emit 하면 HUD 가 컷신을 띄우며 registry 에 「바쁨」을 적어 다음 계획이 short 가 된다).
+    //   (통합·검수) 전투가 끝난 뒤 1.5초(죽음 연출) 안에도 AI 무장기가 나온다(30판 중 6판) — 승리음·결과 패널 위로 전체 화면 컷신이 덮이지 않게 'off'(2차처럼 바로).
+    const plan = cutinPlan(this, { key: meta && meta.key, now: time, mode: this.ended ? 'off' : null });   // { mode, fire, impact, total } ms
+    if (e.side === 'left' || e.side === 'right') this.skillUsed[e.side]++;
+    sfx('skill');
+    this.events.emit('battle:skill', { ...(meta || { id: e.id, side: e.side, name: '', key: null, skill: sk, color: 0xffd24a }), cutinMode: plan.mode });
+    const p = { e, sk, facing, at: time + plan.impact };
+    if (plan.impact <= 0) {   // 컷신 off(설정·전투 종료 뒤) — 2차처럼 바로: 피해 연출 + 120ms 멈칫 + 줌 펀치
+      this.skillImpact(p, time);
+      this.hitStopUntil = time + HITSTOP_MS;
+      this.punchAt = time;   // (통합) 조각에 빠져 있던 것 — 2차 onSkill 은 발동 즉시 펀치를 걸었다
+      return false;
+    }
+    this.hitStopUntil = p.at;               // 히트스톱 = 컷신 길이(복귀 시각까지)
+    this.punchAt = time + plan.fire;        // 줌 펀치는 「발동」 박자에 시작 → 0.2초 뒤(복귀 직전) 1.25 정점
+    this.pendingSkill = p;
+    return true;
+  }
+
+  /** (3차 컷신) 피해 연출 — 컷신이 전장으로 복귀하는 순간(update 가 부른다). 2차까지 onSkill 이 발동 즉시 하던 것 그대로 */
+  skillImpact(p, time) {
+    const { e, sk, facing } = p;
     const cam = this.cameras.main;
     cam.shake(350, 0.012);
     cam.flash(120, 255, 255, 255);
-    this.hitStopUntil = time + HITSTOP_MS;
-    this.punchAt = time;
     let drawn = false;
     if (sk.shape === 'cone') drawn = this.fx.skillCone(e.x, e.y, facing, sk.range);
     else if (sk.shape === 'dash') {
       drawn = this.fx.impact(e.x + facing * 20, e.y - 26, 150);
       const u = this.unitById.get(e.id);
       const data = this.battleData && this.battleData.SKILLS && this.battleData.SKILLS[sk.id];
-      if (u) this.dash = { unit: u, facing, until: time + HITSTOP_MS + ((data && data.dashMs) || 420), next: 0 };
+      // (3차) dashMs 는 sim 시간 → 배속으로 나눈다(히트스톱은 실시간). 안 나누면 ×3 에서 돌진이 끝난 뒤에도 먼지 궤적이 0.3초 더 나온다
+      if (u) this.dash = { unit: u, facing, until: time + HITSTOP_MS + ((data && data.dashMs) || 420) / (this.simSpeed || 1), next: 0 };
     } else {
       drawn = this.fx.skillRing(e.x, e.y, sk.range);
       this.fx.decal(e.x, e.y + 2, 'crater', Math.min(200, sk.range * 0.6), time);
@@ -1100,9 +1330,7 @@ export default class BattleScene extends Phaser.Scene {
     this.fx.area(e.x, e.y, facing, sk, drawn ? 0.5 : 1);   // 2차 이펙트가 나갔으면 범위 표시는 옅게
     if (!this.fx.puffs(e.x, e.y, 5, 70)) this.fx.dust(e.x, e.y, 14);
     this.fx.sparks(e.x, e.y - 30, 18);
-    if (e.side === 'left' || e.side === 'right') this.skillUsed[e.side]++;
-    sfx('skill');
-    this.events.emit('battle:skill', meta || { id: e.id, side: e.side, name: '', key: null, skill: sk, color: 0xffd24a });
+    sfx('hit');
   }
 
   /** 맹공 돌진 궤적 — 돌진하는 동안 45ms 마다 발밑 먼지, 끝나면 도착 impact */
@@ -1115,7 +1343,7 @@ export default class BattleScene extends Phaser.Scene {
       this.fx.puffs(u.x, u.y, 4, 64);
       this.dash = null;
     } else if (time >= d.next) {
-      d.next = time + 45;
+      d.next = time + 45 / (this.simSpeed || 1);   // (3차) 배속이어도 궤적 먼지 개수는 같게
       this.fx.puffs(u.x - d.facing * 14, u.y, 1, 52);
     }
   }
@@ -1147,11 +1375,25 @@ export default class BattleScene extends Phaser.Scene {
     // 히트스톱(무장기 직후 120ms): sim 도 연출 시계(bob·펄럭임)도 멈춘다. 카메라·fx·입력은 계속 돈다
     //   이 동안의 delta 는 버린다(누적해 뒤에 따라잡지 않는다) — sim 은 step 호출 누계·입력만 보므로 결정성과 무관하고,
     //   sim.time(180초 제한·HUD 시계)만 실시간보다 무장기 한 번에 0.12초씩 늦어진다
+    // (3차 컷신) 복귀 시각: 피해 연출 + 묵힌 이벤트(넉백 회전·피격 플래시·사망)를 한 프레임에 터뜨리고, 2차와 같은 120ms 멈칫.
+    //   묵힌 것 안에 또 skill 이 있으면 onSkill 이 새 컷신(짧은 버전)을 걸고 hitStopUntil 을 다시 잡는다 → 그때는 멈칫을 덮지 않는다
+    if (this.pendingSkill && time >= this.pendingSkill.at) {
+      const p = this.pendingSkill;
+      this.pendingSkill = null;
+      this.skillImpact(p, time);
+      this.handleEvents(time);
+      if (!this.pendingSkill) this.hitStopUntil = time + HITSTOP_MS;
+    }
     const stopped = time < this.hitStopUntil;
-    if (!stopped) this.animT += delta;
+    // (3차) 배속 — sim 에 넘기는 시간과 연출 시계(bob·깃발·기절 흔들림)에 곱한다. sim 은 고정 틱 누적기라 step 을 더 많이 부를 뿐 결정성은 그대로.
+    //   인트로 중엔 무시(×1), 끝난 뒤 죽음 연출 1.5초도 ×1. 히트스톱·줌 펀치·컷인(HUD)·결과 패널 트윈·안개는 실시간(time/트윈) 그대로다.
+    const intro = time < this.introUntil;
+    const sp = (intro || this.ended) ? 1 : this.speed;
+    this.simSpeed = sp;
+    if (!stopped) this.animT += delta * sp;
 
     // 「전투 개시」 동안은 sim 을 멈춘 채 첫 장면만 보여 준다
-    if (time < this.introUntil) {
+    if (intro) {
       this.syncSprites(time, delta);
       this.updateCamera(time, delta);
       return;
@@ -1161,10 +1403,13 @@ export default class BattleScene extends Phaser.Scene {
     if (!frozen) {
       this.applyInput();
       if (!stopped) {
-        // delta 를 ≤50ms 로 쪼개 최대 4번 — 남는 시간은 버린다(탭 복귀 폭주 방지)
-        let remain = Math.min(delta, MAX_STEP * MAX_STEPS);
+        // (3차 통합) 컷신·멈칫 중에 눌러 둔 무장기 — 조이스틱 입력과 같은 「프레임 경계의 외부 호출」이라 결정성은 그대로
+        if (this.skillQueued) { this.skillQueued = false; this.tryUseSkill(); }
+        // delta 를 ≤50ms 로 쪼개 최대 4번 — 남는 시간은 버린다(탭 복귀 폭주 방지). (3차) 배속이면 시간도 호출 상한도 그 배(≤50ms × ≤4×배속)
+        const maxSteps = MAX_STEPS * sp;
+        let remain = Math.min(delta * sp, MAX_STEP * maxSteps);
         let n = 0;
-        while (remain > 0 && n < MAX_STEPS) {
+        while (remain > 0 && n < maxSteps) {
           const dt = Math.min(MAX_STEP, remain);
           this.sim.step(dt);
           remain -= dt;
@@ -1172,10 +1417,14 @@ export default class BattleScene extends Phaser.Scene {
         }
         this.handleEvents(time);
         this.updateDash(time);
-        if (!this.ended && this.sim.result) this.onEnd(null);
+        if (!this.ended && this.sim.result && !this.pendingSkill) this.onEnd(null);   // (3차 컷신) 종료 연출은 컷신 복귀 뒤에
+        // (3차) 고른 무장이 이번 프레임에 죽었으면 다음 무장으로. (3차 통합) 적 무장기에 죽었으면 컷신이 끝난 뒤에 — 컷신 중엔 그 무장도 아직 서 있고
+        //   (syncSprites), 카메라·HUD 강조가 암전 아래에서 먼저 옮겨 가면 복귀 순간에 「왜 장비를 보고 있지」가 된다
+        if (!this.pendingSkill) this.checkPlayerAlive();
       }
     }
-    this.syncSprites(time, delta, stopped);
-    this.updateCamera(time, delta);
+    // (3차) 넉백 회전 감쇠는 sim 의 넉백(250ms sim 시간)과 같이 풀려야 한다 → 배속을 곱한 delta. 카메라 추적도 같은 배로
+    this.syncSprites(time, delta * sp, stopped);
+    this.updateCamera(time, delta, sp);
   }
 }

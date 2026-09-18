@@ -15,6 +15,10 @@
 
 ## 2. 실행
 
+**배포:** GitHub `sryanius/gunyoung` (Pages, 브랜치 master, 루트) → https://sryanius.github.io/gunyoung/
+`git push` 하면 1~2분 뒤 반영된다. 원본 그림(assets/raw/*.png·jpg, 241MB)은 .gitignore 로 제외 — 이 PC 에만 있다.
+
+
 ```
 cd C:\claude\gunyoung
 node tools/serve.mjs 5176        # http://localhost:5176  (.claude/launch.json 의 gunyoung 과 같음)

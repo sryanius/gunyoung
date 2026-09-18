@@ -128,7 +128,7 @@ globalThis.Phaser = {
   AUTO: 0, CANVAS: 1, WEBGL: 2,
   Scene,
   Game: class { constructor(cfg) { this.config = cfg; this.renderer = { snapshot() {} }; } },
-  Scale: { FIT: 'FIT', CENTER_BOTH: 'CENTER_BOTH' },
+  Scale: { FIT: 'FIT', CENTER_BOTH: 'CENTER_BOTH', Events: { RESIZE: 'resize' } },
   BlendModes: { ADD: 1 },
   Geom: { Rectangle: class { static Contains() { return false; } } },
   Math: {
@@ -161,7 +161,7 @@ const main = mods['src/main.js'];
 check(boot && typeof boot.default === 'function' && boot.default.prototype instanceof Scene, 'BootScene default export 는 Phaser.Scene 서브클래스');
 check(map && typeof map.default === 'function' && map.default.prototype instanceof Scene, 'MapScene default export 는 Phaser.Scene 서브클래스');
 check(ui && typeof ui.default === 'function' && ui.default.prototype instanceof Scene, 'UIScene default export 는 Phaser.Scene 서브클래스');
-check(main && main.GAME_H === 720 && main.GAME_W >= 1280 && main.GAME_W <= 1600, 'main.js 논리 해상도 세로 720 · 가로 1280~1600(창 비율)');
+check(main && main.GAME_H === 720 && main.GAME_W >= 1280 && main.GAME_W <= 2400, 'main.js 논리 해상도 세로 720 · 가로 1280~2400(창 비율)');
 check(globalThis.__game && globalThis.__game.config && globalThis.__game.config.scene.length === 3, 'main.js 가 Phaser.Game 을 씬 3개로 만든다');
 
 // ─────────────────────────────────────────────────────────────

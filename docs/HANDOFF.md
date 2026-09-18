@@ -111,7 +111,12 @@ UI
 1. **좌우 검은 띠** — 1280×720 FIT 는 19.5:9 폰에서 양쪽 75px 씩 비었다. `main.js` 가 창 비율로 논리 폭을 1280~1600 사이에서 정한다(844×390 → 1558). `UIScene` 은 `this.scale.width` 로 오른쪽 요소(HUD 플레이어 표식·커맨드 바·패널)를 잡고, hud_bar 는 양 끝 150px 고정 가로 3-slice.
 2. **시작 줌** — 지도 전체(MIN_ZOOM 0.46)를 띄우면 폰에서 성 25px·이름 11px 로 안 읽힌다. `START_ZOOM 0.9`, 성도(id 26) 기준 오른쪽 위로 치우쳐 한중·장안까지 보이게.
 3. 도시 이름 24 → 28px.
-4. smoke 의 해상도 검사를 「세로 720 · 가로 1280~1600」 으로.
+4. smoke 의 해상도 검사를 「세로 720 · 가로 1280~2400」 으로.
+
+실기 폰(Samsung Internet, 세로 고정 폰을 가로로 돌림)에서 본 뒤 더 고친 것:
+5. **주소창 때문에 가로가 2.8:1 까지 넓어져** 1600 상한으로는 좌우 띠가 남았다 → 상한 2400. 창 비율이 바뀌면(회전·주소창·전체 화면) `relayout()` 이 `scale.setGameSize` 로 논리 폭을 다시 정하고 UIScene 을 인트로 없이 재시작한다(`scale.resize` 는 FIT 에서 표시 크기를 안 고친다 — 실측).
+6. **세로 고정 폰 대응** — 세로 안내에 「전체 화면으로 시작」 버튼, 터치 기기는 게임 **첫 터치를 뗄 때(pointerup)** `requestFullscreen` → `screen.orientation.lock('landscape')`. 터치의 pointerdown 은 사용자 활성화를 안 줘서 requestFullscreen 이 조용히 거부된다(검토에서 잡힘 — HTML 표준·Chromium 소스 확인). 전체 화면 안에서는 시스템 자동 회전이 꺼져 있어도 가로로 잠긴다(Android Chrome·Samsung Internet; iOS 는 둘 다 미지원이라 조용히 넘어감). Back 으로 전체 화면을 나가면 잠금이 풀려 세로 고정 폰은 다시 세로 안내로 돌아간다. 열려 있던 패널은 재배치 뒤 다시 열린다(`reopen`).
+7. `manifest.webmanifest`(display fullscreen · orientation landscape) + 아이콘(`tools/make_icons.py`) — 「홈 화면에 추가」 하면 앱처럼 가로 전체 화면으로 뜬다.
 
 개발 환경 메모: 데스크톱 앱의 Browser 패인이 **숨겨져 있으면 rAF 가 멈춰** 게임이 프레임 21 에서 정지한 것처럼 보인다(코드 문제 아님).
 검증할 때는 콘솔에서 `const l=__game.loop; l.stop(); l.forceSetTimeOut=true; l.useRAF=false; l.start(__game.step.bind(__game))` 로 setTimeout 루프로 바꾸면 돈다. 실기·일반 브라우저는 해당 없음.

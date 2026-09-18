@@ -12,8 +12,8 @@ import { play as sfx } from '../sfx.js';
 const S = 2;
 const MAP_W = 2000;
 const MAP_H = 1560;
-/** 최소 줌 = 세로가 딱 맞게 (SPEC §2) */
-const MIN_ZOOM = 720 / MAP_H;
+/** 최소 줌의 바닥 = 세로가 딱 맞게 (SPEC §2). 실제 최소 줌은 minZoom() — 넓은 화면에선 가로도 채우도록 올라간다 */
+const BASE_MIN_ZOOM = 720 / MAP_H;
 const MAX_ZOOM = 1.6;
 /**
  * 시작은 지도 전체가 아니라 플레이어 수도(성도) 주변을 보여 준다.
@@ -333,9 +333,14 @@ export default class MapScene extends Phaser.Scene {
   // 카메라
   // ─────────────────────────────────────────────────────────────
 
+  /** 지도 밖 배경색이 안 보이는 최소 줌 — 세로는 항상, 가로는 화면이 넓을 때(논리 폭 > 1800) 걸린다 */
+  minZoom() {
+    return Math.max(BASE_MIN_ZOOM, this.cameras.main.width / MAP_W);
+  }
+
   setupCamera() {
     const cam = this.cameras.main;
-    cam.setZoom(START_ZOOM);
+    cam.setZoom(Math.max(START_ZOOM, this.minZoom()));
     this.applyBounds();
     const c = CITIES[START_CITY];
     cam.centerOn(c.x * S + 260, c.y * S - 80);   // 성도가 왼쪽 아래, 한중·장안 쪽이 보이게
@@ -425,7 +430,7 @@ export default class MapScene extends Phaser.Scene {
       if (p1.isDown && p2.isDown) {
         const d = Phaser.Math.Distance.Between(p1.x, p1.y, p2.x, p2.y);
         const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
-        const z = Phaser.Math.Clamp(this.pinch.zoom * d / this.pinch.dist, MIN_ZOOM, MAX_ZOOM);
+        const z = Phaser.Math.Clamp(this.pinch.zoom * d / this.pinch.dist, this.minZoom(), MAX_ZOOM);
         this.zoomAt(z, mx, my);
         // 두 손가락 가운데가 움직이면 같이 팬
         cam.scrollX -= (mx - this.pinch.mx) / cam.zoom;
@@ -461,7 +466,7 @@ export default class MapScene extends Phaser.Scene {
   onWheel(pointer, over, dx, dy) {
     const cam = this.cameras.main;
     const factor = dy > 0 ? 0.9 : 1.1;
-    this.zoomAt(Phaser.Math.Clamp(cam.zoom * factor, MIN_ZOOM, MAX_ZOOM), pointer.x, pointer.y);
+    this.zoomAt(Phaser.Math.Clamp(cam.zoom * factor, this.minZoom(), MAX_ZOOM), pointer.x, pointer.y);
   }
 
   // ─────────────────────────────────────────────────────────────

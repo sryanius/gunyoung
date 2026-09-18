@@ -64,11 +64,15 @@ export default class UIScene extends Phaser.Scene {
     LAYOUT.hud.playerX = 1050 + extra;
     LAYOUT.hud.safeX = [100, 1180 + extra];
 
-    this.buildHud();
+    // 창 비율이 바뀌어 main.js 가 restart({ noIntro: true, reopen }) 한 경우 — 인트로·카운트업 없이, 열려 있던 패널은 다시 연다
+    const data = this.scene.settings.data || {};
+    const noIntro = !!data.noIntro;
+
+    this.buildHud(noIntro);
     this.buildCommandBar();
     this.buildToast();
     this.buildPanel();
-    this.playIntro();
+    if (!noIntro) this.playIntro();
 
     this.mapScene.events.on('city:open', this.openPanel, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -77,6 +81,7 @@ export default class UIScene extends Phaser.Scene {
     if (this.input.keyboard) {
       this.input.keyboard.on('keydown-ESC', () => this.closePanel());
     }
+    if (data.reopen) this.openPanel(data.reopen);
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -111,7 +116,8 @@ export default class UIScene extends Phaser.Scene {
   // 상단 HUD
   // ─────────────────────────────────────────────────────────────
 
-  buildHud() {
+  /** @param instant true 면 숫자 카운트업 없이 최종값을 바로 찍는다(재배치 재시작) */
+  buildHud(instant = false) {
     // hud_bar.png 는 1280 폭 — 더 넓으면 양 끝 메달리온(150px)을 고정하고 가운데 나무결만 늘린다(가로 3-slice).
     let bar;
     if (!this.textures.exists('hud_bar')) {
@@ -148,13 +154,15 @@ export default class UIScene extends Phaser.Scene {
       const lab = this.add.text(x + 20, HY + 1, label, {
         fontFamily: FONT_BODY, fontSize: '20px', color: '#cdb98e',
       }).setOrigin(0, 0.5).setDepth(11);
-      const num = this.add.text(x + 20 + lab.width + 6, HY, '0', {
+      const num = this.add.text(x + 20 + lab.width + 6, HY, instant ? val.toLocaleString('ko-KR') : '0', {
         fontFamily: FONT_BODY, fontSize: '26px', color: '#f7e9c9', stroke: '#2a1a0c', strokeThickness: 3,
       }).setOrigin(0, 0.5).setDepth(11);
-      this.tweens.addCounter({
-        from: 0, to: val, duration: 1200, delay: 400, ease: 'Cubic.easeOut',
-        onUpdate: (tw) => num.setText(Math.round(tw.getValue()).toLocaleString('ko-KR')),
-      });
+      if (!instant) {
+        this.tweens.addCounter({
+          from: 0, to: val, duration: 1200, delay: 400, ease: 'Cubic.easeOut',
+          onUpdate: (tw) => num.setText(Math.round(tw.getValue()).toLocaleString('ko-KR')),
+        });
+      }
       x += L.resStep;
     }
 

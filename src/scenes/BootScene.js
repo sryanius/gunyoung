@@ -87,13 +87,18 @@ export default class BootScene extends Phaser.Scene {
     for (const [key, path] of ASSETS) this.load.image(key, path);
 
     // 진행 바 — 폰트가 아직 없으니 글자는 그리지 않는다
-    const W = this.scale.width, H = this.scale.height;
+    // 컨테이너에 넣어 로딩 중 창 비율이 바뀌어도(main.js relayout → RESIZE) 가운데를 지킨다
+    const box = this.add.container(this.scale.width / 2, this.scale.height / 2);
     const frame = this.add.graphics();
-    frame.lineStyle(2, 0xb08a3e, 1).strokeRoundedRect(W / 2 - 200, H / 2 - 10, 400, 20, 6);
+    frame.lineStyle(2, 0xb08a3e, 1).strokeRoundedRect(-200, -10, 400, 20, 6);
     const bar = this.add.graphics();
+    box.add([frame, bar]);
     this.load.on('progress', (v) => {
-      bar.clear().fillStyle(0xd9b25a, 1).fillRoundedRect(W / 2 - 196, H / 2 - 6, Math.max(8, 392 * v), 12, 4);
+      bar.clear().fillStyle(0xd9b25a, 1).fillRoundedRect(-196, -6, Math.max(8, 392 * v), 12, 4);
     });
+    const onResize = (gs) => box.setPosition(gs.width / 2, gs.height / 2);
+    this.scale.on(Phaser.Scale.Events.RESIZE, onResize);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.scale.off(Phaser.Scale.Events.RESIZE, onResize));
   }
 
   async create() {

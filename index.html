@@ -6,6 +6,11 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <title>군영전</title>
+<meta name="theme-color" content="#1a120c">
+<!-- 홈 화면에 추가하면 전체 화면·가로 고정으로 뜬다 -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <!-- 폰트: 제목 붓글씨 / 본문 명조 / 한자 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -37,6 +42,14 @@
   }
   #rotate p { font-size: 40px; margin: 28px 0 0; }
   #rotate small { font-family: 'Song Myung', serif; font-size: 16px; opacity: .7; }
+  /* 세로 고정 폰용 — 전체 화면에 들어가면 가로로 잠글 수 있다 */
+  #rotate button {
+    margin-top: 28px; padding: 14px 34px;
+    font: 30px 'Nanum Brush Script', 'Song Myung', serif; color: #f6e9c9;
+    background: linear-gradient(#5a3a1e, #2e1a0c); border: 3px solid #c8a24a; border-radius: 12px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.6);
+  }
+  #rotate button:active { background: linear-gradient(#2e1a0c, #5a3a1e); }
   @keyframes turn {
     0%, 20%  { transform: rotate(0deg); }
     60%, 100% { transform: rotate(90deg); }
@@ -52,6 +65,8 @@
     <div class="phone"></div>
     <p>가로로 돌려 주세요</p>
     <small>군영전은 가로 화면에서 즐길 수 있습니다</small>
+    <button type="button" onclick="window.__goFullscreen && window.__goFullscreen()">전체 화면으로 시작</button>
+    <small>세로 고정 폰도 전체 화면에서는 가로로 잠깁니다</small>
   </div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
   <script type="module" src="src/main.js"></script>

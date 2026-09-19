@@ -3,6 +3,37 @@
 > 기준 문서: `docs/SPEC.md`. 이 문서는 「지금 어디까지 됐고, 어떻게 돌리고, 무엇이 남았나」만 적는다.
 > 2026-09-18 브라우저(폰 가로 844×390 에뮬레이션)에서 확인했다 — §8. 스크린샷은 `tools/shots/phone_*.png`.
 
+## §0. 재개 지점 (2026-09-19 작업 중단 — 제작자가 다른 세션 작업을 먼저 한다)
+
+**지금 상태 한 줄:** 전략맵 목업 + 실시간 대군 전투(3차: 조종 선택·배속·여성 무장 컷신)까지 만들어 **https://sryanius.github.io/gunyoung/** 에 배포돼 있다. 작업 트리는 깨끗하고 전부 푸시됨(`sryanius/gunyoung`, master).
+
+**멈춘 곳:** 3차를 배포하고 **제작자의 실기 폰 피드백을 기다리는 중**이었다. 물어 둔 것 세 가지 —
+1. 컷신 길이 1.6초가 적당한가(특히 3배속에서 흐름을 끊는가)
+2. 초상 탭·「수동/자동」·배속 버튼이 손가락으로 잘 눌리는가
+3. 여성 무장 컷인 네 장이 마음에 드는가(인물별로 다시 뽑을 수 있다)
+
+**재개하면 먼저:** 제작자에게 위 세 가지를 실기에서 봤는지 묻고, 무엇을 고칠지 정한 뒤 시작한다(제작자가 직접 플레이하고 정할 부분).
+
+### 다음 할 일 후보 (제작자가 고른다)
+- **알려진 미감(3차)**: 컷인 일러스트가 사선 패널 끝에 붙어 몸이 많이 잘림(얼굴 우선 배치) · 붓글씨 뒤 먹 번짐이 원 여러 개라 뭉툭 · 무장기가 1.6초 안에 연달아 터지면 두 번째는 짧은 버전(일러스트 박자 없음) — §9.10. 그 밖의 should 는 §9.5·§9.7·§9.9.
+- **알려진 미감(지도)**: 낙양·허창·진류 밀집 구간 이름 가림 · castle_1 벽 연보라 · 지도 서북 사막 밋밋·강 벡터 느낌 · 구름 가장자리 — §8, §5.
+- **기능 후보**: 단기접전(일기토) · 전략층↔전투 연결(출진할 성·병력·무장 선택, 결과를 지도에 반영) · 무장·병종 확대 · BGM · 옵션 화면(컷신 full/short/off, 배속 기본값) · 서비스 워커/APK(TWA — sam3 방식 `C:claudesam-twa` 참고).
+
+### 재개 절차
+1. 문서: 이 §0 → `docs/SPEC.md`(화면 규약·생성 도구 §6) → 전투는 `docs/BATTLE.md`(sim API) → `BATTLE_ART.md`(2차 그림 계약) → `BATTLE_V3.md`(3차, **§3.1 수위 규칙**).
+2. 검증 네 개(전부 PASS 상태): `node tools/smoke.mjs`(346) · `node tools/battle-bench.mjs [--player]` · `node assets/raw/battle/view-check.mjs --art`(108) · `node assets/raw/battle3/control/control-check.mjs --art`.
+3. 실행: `node tools/serve.mjs 5176`. 데스크톱 앱 프리뷰는 launch 항목 `gunyoung`(`C:claudegunyoung.claudelaunch.json`, `C:claude.claudelaunch.json`, `C:claudegame.claudelaunch.json` 세 곳에 있음).
+4. 그림 생성: ComfyUI 가 꺼져 있으면 `Pinokio.exe` 실행 → `C:pinokioin
+pmpterm.cmd run C:pinokioapiinteliweb-comfyui --default start.js` → `http://localhost:8188`. 체크포인트 animagine-xl-4.0, 지시 편집은 `C:claudeimage-editedit.py`. 파이썬은 `C:pinokioapiinteliweb-comfyuiappenvScriptspython.exe`(PATH 의 python 은 스토어 스텁). 원본·후보 그림은 `assets/raw/` 에만 있고 저장소에는 없다(gitignore) — 이 PC 에서만 재가공 가능.
+5. 배포: `git push` → 1분쯤 뒤 Pages 반영. 반영 확인은 새 파일을 curl 로.
+
+### 작업 방식 메모 (이 프로젝트에서 통한 것)
+- **사양 문서 먼저 → 병렬 갈래(그림/코드) + 파일 소유 표 → 독립 검수 → 수정 → 통합 → 브라우저에서 직접 스크린샷.** 에이전트는 브라우저를 못 쓰게 하고(패인이 하나) 마지막 눈 검사는 본 세션이 한다. 제작자는 **폰 가로(844×390) 스크린샷**으로 판정한다 — 끝나면 `__shot('이름')` 으로 찍어 보여 준다.
+- 사용량 한도로 워크플로가 통째로 죽은 적이 두 번 있다 — 죽으면 `git status` 로 반쯤 고친 파일을 확인(필요하면 패치로 빼고 되돌림)한 뒤 같은 scriptPath 로 다시 돌린다. ComfyUI·개발 서버·Browser 패인도 같이 내려가 있을 수 있다.
+- Browser 패인이 숨겨져 있으면 rAF 가 멈춰 게임이 정지한 듯 보인다 → 콘솔에서 `const l=__game.loop; l.stop(); l.forceSetTimeOut=true; l.useRAF=false; l.start(__game.step.bind(__game))`. 이 상태의 fps(36~60)는 실제 성능이 아니다.
+- 패인에서 좌표 클릭은 **스크린샷 좌표계(844×390 에뮬이면 800×369)** 기준이다. 「출진」 ≈ (750,340). 전투 조작은 JS 로 부르는 편이 안정적: `sc=__game.scene.getScene('BattleScene'); sc.command('charge'); sc.sim.unitById(0).gauge=100; sc.sim.useSkill('left',0)`.
+- 제작자 폰: 삼성(Samsung Internet), **세로 고정**으로 쓴다 → 첫 터치에 전체 화면+가로 잠금(§8-6), 실기에서 확인됨.
+
 ## 1. 현재 상태
 
 | 항목 | 상태 |
